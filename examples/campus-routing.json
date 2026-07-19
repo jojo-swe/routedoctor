@@ -1,0 +1,32 @@
+{
+  "routes": [
+    {
+      "prefix": "0.0.0.0/0",
+      "protocol": "static",
+      "next_hop": "192.0.2.1",
+      "admin_distance": 1,
+      "metric": 0
+    },
+    {
+      "prefix": "10.0.0.0/8",
+      "protocol": "ospf",
+      "next_hop": "192.0.2.2",
+      "admin_distance": 110,
+      "metric": 20
+    },
+    {
+      "prefix": "10.20.0.0/16",
+      "protocol": "static",
+      "next_hop": "192.0.2.3",
+      "admin_distance": 1,
+      "metric": 0
+    },
+    {
+      "prefix": "192.0.2.0/24",
+      "protocol": "connected",
+      "interface": "GigabitEthernet0/0",
+      "admin_distance": 0,
+      "metric": 0
+    }
+  ]
+}

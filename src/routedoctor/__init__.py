@@ -1,17 +1,12 @@
 """RouteDoctor routing diagnostics."""
 
-from __future__ import annotations
+from .engine import Diagnosis, Route, diagnose_destination, parse_routes
 
 
-def diagnose(routes: list[dict]) -> list[str]:
-    findings: list[str] = []
-    for route in routes:
-        prefix = route.get("prefix", "unknown")
-        if not route.get("next_hop"):
-            findings.append(f"{prefix}: missing next hop")
-        if route.get("age_seconds", 0) > 86_400:
-            findings.append(f"{prefix}: stale route")
-    return findings
+def diagnose(routes: list[dict], destination: str = "0.0.0.0") -> list[str]:
+    """Compatibility helper returning findings for one destination."""
+    return diagnose_destination(parse_routes(routes), destination).findings
 
 
-__all__ = ["diagnose"]
+__all__ = ["Diagnosis", "Route", "diagnose", "diagnose_destination", "parse_routes"]
+__version__ = "0.1.0"
