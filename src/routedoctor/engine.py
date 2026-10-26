@@ -60,7 +60,7 @@ def parse_routes(items: list[dict[str, Any]]) -> list[Route]:
                 metric=int(item.get("metric", 0)),
                 active=bool(item.get("active", True)),
             )
-            route.network
+            _ = route.network
             if route.next_hop is not None:
                 ip_address(route.next_hop)
         except (KeyError, TypeError, ValueError) as exc:
