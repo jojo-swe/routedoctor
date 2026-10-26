@@ -1,0 +1,19 @@
+{
+  "routes": [
+    {
+      "prefix": "0.0.0.0/0",
+      "protocol": "static",
+      "next_hop": "192.0.2.1",
+      "admin_distance": 1,
+      "metric": 0,
+      "active": false
+    },
+    {
+      "prefix": "203.0.113.0/24",
+      "protocol": "static",
+      "next_hop": "198.51.100.1",
+      "admin_distance": 1,
+      "metric": 0
+    }
+  ]
+}

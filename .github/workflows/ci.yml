@@ -24,3 +24,7 @@ jobs:
       - run: ruff check .
       - run: pytest
       - run: routedoctor examples/campus-routing.json 10.20.5.9
+      - run: |
+          status=0
+          routedoctor examples/unresolved-next-hop.json 203.0.113.9 || status=$?
+          test "$status" -eq 1

@@ -74,6 +74,24 @@ def test_reports_tie_break_when_costs_differ() -> None:
     assert "Tie broken by administrative distance 1 and metric 0" in result.findings
 
 
+def test_reports_skipped_inactive_routes() -> None:
+    routes = parse_routes(
+        [
+            {"prefix": "10.0.0.0/8", "next_hop": "192.0.2.1", "active": False},
+            {"prefix": "10.1.0.0/16", "next_hop": "192.0.2.2", "active": False},
+            {"prefix": "172.16.0.0/12", "next_hop": "192.0.2.3", "active": False},
+        ]
+    )
+
+    result = diagnose_destination(routes, "10.1.2.3")
+
+    assert not result.ok
+    assert result.findings == [
+        "ERROR no matching active route; traffic is dropped",
+        "2 inactive route(s) for this destination were skipped, including 10.0.0.0/8",
+    ]
+
+
 def test_detects_recursive_loop() -> None:
     routes = parse_routes(
         [

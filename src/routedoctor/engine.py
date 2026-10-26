@@ -81,9 +81,15 @@ def diagnose_destination(routes: list[Route], destination: str) -> Diagnosis:
         key=lambda route: (-route.network.prefixlen, route.admin_distance, route.metric, route.protocol)
     )
     result = Diagnosis(destination=destination, selected=candidates[0] if candidates else None, candidates=candidates)
+    inactive = [route for route in routes if not route.active and address in route.network]
+    skipped = [
+        f"{len(inactive)} inactive route(s) for this destination were skipped, "
+        f"including {inactive[0].prefix}"
+    ] if inactive else []
 
     if not candidates:
         result.findings.append("ERROR no matching active route; traffic is dropped")
+        result.findings.extend(skipped)
         return result
 
     selected = candidates[0]
@@ -117,6 +123,7 @@ def diagnose_destination(routes: list[Route], destination: str) -> Diagnosis:
         result.findings.append(
             f"{len(shadowed)} less-specific route(s) were ignored, including {shadowed[0].prefix}"
         )
+    result.findings.extend(skipped)
     return result
 
 
