@@ -29,6 +29,7 @@ class Diagnosis:
     candidates: list[Route] = field(default_factory=list)
     findings: list[str] = field(default_factory=list)
     recursive_chain: list[str] = field(default_factory=list)
+    equal_cost: list[Route] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -43,6 +44,7 @@ class Diagnosis:
             "selected": asdict(self.selected) if self.selected else None,
             "candidates": [asdict(route) for route in self.candidates],
             "recursive_chain": self.recursive_chain,
+            "equal_cost": [asdict(route) for route in self.equal_cost],
             "findings": self.findings,
         }
 
@@ -89,7 +91,16 @@ def diagnose_destination(routes: list[Route], destination: str) -> Diagnosis:
         f"Selected {selected.prefix} by longest-prefix match (/{selected.network.prefixlen})"
     )
     same_prefix = [route for route in candidates if route.network.prefixlen == selected.network.prefixlen]
-    if len(same_prefix) > 1:
+    equal_cost = [
+        route
+        for route in same_prefix
+        if (route.admin_distance, route.metric) == (selected.admin_distance, selected.metric)
+    ]
+    if len(equal_cost) > 1:
+        result.equal_cost = equal_cost
+        paths = ", ".join(route.next_hop or route.interface or "unresolved" for route in equal_cost)
+        result.findings.append(f"{len(equal_cost)} equal-cost paths via {paths}; showing the first")
+    elif len(same_prefix) > 1:
         result.findings.append(
             f"Tie broken by administrative distance {selected.admin_distance} and metric {selected.metric}"
         )

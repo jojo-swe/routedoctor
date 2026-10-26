@@ -36,6 +36,44 @@ def test_reports_missing_route() -> None:
     assert result.findings == ["ERROR no matching active route; traffic is dropped"]
 
 
+def test_reports_equal_cost_paths() -> None:
+    routes = parse_routes(
+        [
+            {"prefix": "10.0.0.0/8", "protocol": "ospf", "next_hop": "192.0.2.1",
+             "admin_distance": 110, "metric": 20},
+            {"prefix": "10.0.0.0/8", "protocol": "ospf", "next_hop": "192.0.2.2",
+             "admin_distance": 110, "metric": 20},
+            {"prefix": "10.0.0.0/8", "protocol": "ospf", "next_hop": "192.0.2.9",
+             "admin_distance": 110, "metric": 30},
+            {"prefix": "192.0.2.0/24", "interface": "GigabitEthernet0/0"},
+        ]
+    )
+
+    result = diagnose_destination(routes, "10.1.2.3")
+
+    assert result.ok
+    assert [route.next_hop for route in result.equal_cost] == ["192.0.2.1", "192.0.2.2"]
+    assert "2 equal-cost paths via 192.0.2.1, 192.0.2.2; showing the first" in result.findings
+    assert not any(finding.startswith("Tie broken") for finding in result.findings)
+    assert len(result.to_dict()["equal_cost"]) == 2
+
+
+def test_reports_tie_break_when_costs_differ() -> None:
+    routes = parse_routes(
+        [
+            {"prefix": "10.0.0.0/8", "protocol": "ospf", "next_hop": "192.0.2.1",
+             "admin_distance": 110, "metric": 20},
+            {"prefix": "10.0.0.0/8", "protocol": "static", "next_hop": "192.0.2.2"},
+            {"prefix": "192.0.2.0/24", "interface": "GigabitEthernet0/0"},
+        ]
+    )
+
+    result = diagnose_destination(routes, "10.1.2.3")
+
+    assert result.equal_cost == []
+    assert "Tie broken by administrative distance 1 and metric 0" in result.findings
+
+
 def test_detects_recursive_loop() -> None:
     routes = parse_routes(
         [

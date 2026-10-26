@@ -8,6 +8,7 @@ It operates on offline JSON snapshots, so it is safe to use in CI, labs, inciden
 
 - longest-prefix match
 - administrative-distance and metric tie-breaking
+- equal-cost paths (ECMP) sharing the best prefix, distance, and metric
 - recursive next-hop resolution
 - unresolved next hops
 - recursive routing loops
