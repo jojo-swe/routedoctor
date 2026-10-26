@@ -1,5 +1,7 @@
 # RouteDoctor
 
+[![CI](https://github.com/jojo-swe/routedoctor/actions/workflows/ci.yml/badge.svg)](https://github.com/jojo-swe/routedoctor/actions/workflows/ci.yml)
+
 RouteDoctor explains **why a routing table selects a path** and highlights common forwarding failures before they become long troubleshooting sessions.
 
 It operates on offline JSON snapshots, so it is safe to use in CI, labs, incident reviews, and sanitized production exports.
@@ -12,7 +14,7 @@ It operates on offline JSON snapshots, so it is safe to use in CI, labs, inciden
 - recursive next-hop resolution
 - unresolved next hops
 - recursive routing loops
-- inactive and missing routes
+- missing routes, and inactive routes that were skipped
 - routes with no usable next hop or exit interface
 - less-specific routes shadowed by a more-specific prefix
 
@@ -24,6 +26,7 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 
 routedoctor examples/campus-routing.json 10.20.5.9
+# or: python -m routedoctor examples/campus-routing.json 10.20.5.9
 ```
 
 Example output:
@@ -36,6 +39,21 @@ Selected: 10.20.0.0/16 via 192.0.2.3 [static]
 + Next hop 192.0.2.3 resolves through 192.0.2.0/24
 + Recursive resolution terminates on GigabitEthernet0/0
 + 2 less-specific route(s) were ignored, including 10.0.0.0/8
+```
+
+When something is wrong, findings are marked `!` and the command exits `1`:
+
+```bash
+routedoctor examples/unresolved-next-hop.json 203.0.113.9
+```
+
+```text
+RouteDoctor diagnosis for 203.0.113.9
+====================================================
+Selected: 203.0.113.0/24 via 198.51.100.1 [static]
++ Selected 203.0.113.0/24 by longest-prefix match (/24)
+! ERROR next hop 198.51.100.1 is unresolved
++ 1 inactive route(s) for this destination were skipped, including 0.0.0.0/0
 ```
 
 Machine-readable output:
@@ -72,6 +90,14 @@ Exit codes:
   ]
 }
 ```
+
+A bare JSON array of routes (without the `routes` key) is also accepted.
+
+## Limitations
+
+- IPv4 only; IPv6 destinations are rejected as invalid input.
+- Equal-cost paths are reported, but the forwarding walk follows only the first one.
+- One destination per run.
 
 ## Python API
 
