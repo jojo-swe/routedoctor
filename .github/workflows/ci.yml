@@ -23,7 +23,7 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: ruff check .
       - run: pytest
-      - run: routedoctor examples/campus-routing.json 10.20.5.9
+      - run: routedoctor examples/campus-routing.json 198.51.100.9
       - run: |
           status=0
           routedoctor examples/unresolved-next-hop.json 203.0.113.9 || status=$?

@@ -8,14 +8,14 @@
       "metric": 0
     },
     {
-      "prefix": "10.0.0.0/8",
+      "prefix": "198.51.100.0/24",
       "protocol": "ospf",
       "next_hop": "192.0.2.2",
       "admin_distance": 110,
       "metric": 20
     },
     {
-      "prefix": "10.20.0.0/16",
+      "prefix": "198.51.100.8/29",
       "protocol": "static",
       "next_hop": "192.0.2.3",
       "admin_distance": 1,
