@@ -25,20 +25,20 @@ python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 
-routedoctor examples/campus-routing.json 10.20.5.9
-# or: python -m routedoctor examples/campus-routing.json 10.20.5.9
+routedoctor examples/campus-routing.json 198.51.100.9
+# or: python -m routedoctor examples/campus-routing.json 198.51.100.9
 ```
 
 Example output:
 
 ```text
-RouteDoctor diagnosis for 10.20.5.9
+RouteDoctor diagnosis for 198.51.100.9
 ====================================================
-Selected: 10.20.0.0/16 via 192.0.2.3 [static]
-+ Selected 10.20.0.0/16 by longest-prefix match (/16)
+Selected: 198.51.100.8/29 via 192.0.2.3 [static]
++ Selected 198.51.100.8/29 by longest-prefix match (/29)
 + Next hop 192.0.2.3 resolves through 192.0.2.0/24
 + Recursive resolution terminates on GigabitEthernet0/0
-+ 2 less-specific route(s) were ignored, including 10.0.0.0/8
++ 2 less-specific route(s) were ignored, including 198.51.100.0/24
 ```
 
 When something is wrong, findings are marked `!` and the command exits `1`:
@@ -59,7 +59,7 @@ Selected: 203.0.113.0/24 via 198.51.100.1 [static]
 Machine-readable output:
 
 ```bash
-routedoctor examples/campus-routing.json 10.20.5.9 --json
+routedoctor examples/campus-routing.json 198.51.100.9 --json
 ```
 
 Exit codes:
