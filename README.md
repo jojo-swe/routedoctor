@@ -1,3 +1,5 @@
+<p align="center"><img src=".github/assets/logo.svg" alt="routedoctor logo" width="128"></p>
+
 # RouteDoctor
 
 [![CI](https://github.com/jojo-swe/routedoctor/actions/workflows/ci.yml/badge.svg)](https://github.com/jojo-swe/routedoctor/actions/workflows/ci.yml)
