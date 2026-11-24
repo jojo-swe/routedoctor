@@ -6,6 +6,8 @@ Lint:    ruff check .
 Test:    pytest            (pythonpath=src is set in pyproject, no install needed)
 Smoke:   routedoctor examples/campus-routing.json 198.51.100.9     # exit 0
          routedoctor examples/unresolved-next-hop.json 203.0.113.9 # exit 1
+         routedoctor tests/fixtures/ios-show-ip-route.txt 198.51.100.9 # exit 0
+         routedoctor examples/loop-snapshot.json 203.0.113.9 --trace-from r1 # exit 1
 Layout:  src/routedoctor/engine.py  (Route, Diagnosis, parse_routes, diagnose_destination)
          src/routedoctor/cli.py     (argparse, exit codes 0/1/2)
          tests/test_engine.py       (one test per diagnosis rule)
@@ -83,8 +85,10 @@ Flera agenter kan jobba här parallellt – utgå alltid från att någon annan 
 
 #### Bygga och testa
 
-- Installera: `pip install -e .`
+- Installera: `pip install -e ".[dev]"`
+- Lint: `ruff check .`
 - Test: `pytest`
+- Demo-manifest: `python scripts/build_demo.py` (skriv om) och `python scripts/build_demo.py --check` (CI)
 - CI: GitHub Actions (`ci.yml`, `privacy-guard.yml`)
 
 #### Struktur
