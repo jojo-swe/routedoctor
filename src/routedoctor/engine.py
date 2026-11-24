@@ -22,18 +22,21 @@ class Route:
     metric: int = 0
     active: bool = True
     discard: str | None = None  # one of DISCARD_KINDS when the route drops traffic
+    _network: IPv4Network | IPv6Network = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
+        # Parsed once: lookups touch every route's network many times.
+        object.__setattr__(self, "_network", ip_network(self.prefix, strict=False))
         # Cisco Null0 is a discard interface whatever else the route says.
         if self.discard is None and self.interface and _NULL0_RE.fullmatch(self.interface):
             object.__setattr__(self, "discard", "Null0")
 
     @property
     def network(self) -> IPv4Network | IPv6Network:
-        return ip_network(self.prefix, strict=False)
+        return self._network
 
     def to_dict(self) -> dict[str, Any]:
-        return {item.name: getattr(self, item.name) for item in fields(self)}
+        return {item.name: getattr(self, item.name) for item in fields(self) if item.init}
 
 
 @dataclass(slots=True)
@@ -64,6 +67,7 @@ class Diagnosis:
 
 
 _MAX_NUMBER = 4_294_967_295
+MAX_RESOLUTION_DEPTH = 64
 
 
 def parse_routes(items: list[dict[str, Any]]) -> list[Route]:
@@ -223,6 +227,11 @@ def _resolve_next_hop(routes: list[Route], route: Route, result: Diagnosis) -> N
         next_hop = route.next_hop
         if next_hop in visited:
             result.findings.append(f"ERROR recursive routing loop while resolving {next_hop}")
+            return
+        if len(visited) >= MAX_RESOLUTION_DEPTH:
+            result.findings.append(
+                f"ERROR next-hop resolution exceeds {MAX_RESOLUTION_DEPTH} levels"
+            )
             return
         visited.add(next_hop)
         result.recursive_chain.append(next_hop)

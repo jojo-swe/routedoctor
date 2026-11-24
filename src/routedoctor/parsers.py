@@ -19,6 +19,15 @@ class ParsedTable:
     addresses: list[str]  # addresses the device itself owns
 
 
+# Text lines longer than this are skipped: no real route line comes close, and it bounds the
+# work every pattern does per line.
+MAX_LINE_LENGTH = 2000
+
+
+def _lines(text: str) -> list[str]:
+    return [line for line in text.splitlines() if len(line) <= MAX_LINE_LENGTH]
+
+
 # --- Cisco IOS -------------------------------------------------------------------------
 
 _IOS_PROTOCOLS = {
@@ -52,8 +61,9 @@ _IOS_ROUTE_RE = re.compile(
     r"^(?P<code>[A-Za-z][A-Za-z0-9*+%]*)(?:\s+[A-Za-z][A-Za-z0-9]*)?"
     r"\s+(?P<prefix>\d+\.\d+\.\d+\.\d+(?:/\d+)?)(?P<rest>.*)$"
 )
+# The lookahead requires a colon without the quadratic backtracking of `[..]*:[..]*`.
 _IOS6_ROUTE_RE = re.compile(
-    r"^(?P<code>[A-Za-z][A-Za-z0-9*+%]*)\s+(?P<prefix>[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*/\d+)"
+    r"^(?P<code>[A-Za-z][A-Za-z0-9*+%]*)\s+(?P<prefix>(?=[0-9A-Fa-f.]*:)[0-9A-Fa-f:.]+/\d+)"
     r"(?P<rest>.*)$"
 )
 # `203.0.113.0/26 is subnetted, 2 subnets`: children then omit their own /len.
@@ -115,7 +125,7 @@ def _parse_ios_text(
 
     wrapped = False  # the previous path line ended in "," with no interface yet
 
-    for line in text.splitlines():
+    for line in _lines(text):
         line = line.rstrip()
         was_wrapped, wrapped = wrapped, False
         header = _SUBNETTED_RE.match(line)
@@ -207,7 +217,7 @@ def _looks_like_address(text: str) -> bool:
 
 
 def _reject_frr(text: str) -> None:
-    for line in text.splitlines():
+    for line in _lines(text):
         if _FRR_ROUTE_RE.match(line):
             raise ValueError(_FRR_MESSAGE)
 
@@ -237,7 +247,7 @@ def parse_linux(text: str) -> ParsedTable:
             families.add(ip_network(item["prefix"], strict=False).version)
         items.append(item)
 
-    for line in text.splitlines():
+    for line in _lines(text):
         if not line.strip():
             continue
         tokens = line.split()
@@ -324,7 +334,7 @@ def _linux_path(tokens: list[str]) -> dict[str, Any]:
 def parse_ip_addr(text: str) -> list[str]:
     """Return the global addresses from `ip addr`, without prefix lengths or link-local ones."""
     addresses: list[str] = []
-    for line in text.splitlines():
+    for line in _lines(text):
         tokens = line.split()
         if len(tokens) < 2 or tokens[0] not in ("inet", "inet6"):
             continue
@@ -413,7 +423,7 @@ def _ios_if_known_codes(
     The IOS line patterns alone would accept any word followed by an address ("Hello 192.0.2.1"),
     so auto-detection also requires the word to be a code the parser knows.
     """
-    for line in text.splitlines():
+    for line in _lines(text):
         match = route_re.match(line)
         if match and match["code"].rstrip("*+%") in protocols:
             return parser(text)  # a genuine error in a real IOS table should surface
