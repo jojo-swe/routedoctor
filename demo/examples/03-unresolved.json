@@ -1,0 +1,10 @@
+{
+  "id": "unresolved",
+  "title": "Unresolved next hop",
+  "request": {
+    "action": "diagnose",
+    "format": "auto",
+    "table": "{\n  \"routes\": [\n    {\n      \"prefix\": \"0.0.0.0/0\",\n      \"protocol\": \"static\",\n      \"next_hop\": \"192.0.2.1\",\n      \"admin_distance\": 1,\n      \"metric\": 0,\n      \"active\": false\n    },\n    {\n      \"prefix\": \"203.0.113.0/24\",\n      \"protocol\": \"static\",\n      \"next_hop\": \"198.51.100.1\",\n      \"admin_distance\": 1,\n      \"metric\": 0\n    }\n  ]\n}\n",
+    "destination": "203.0.113.9"
+  }
+}

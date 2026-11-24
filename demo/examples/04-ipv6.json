@@ -1,0 +1,10 @@
+{
+  "id": "ipv6",
+  "title": "IPv6 table",
+  "request": {
+    "action": "diagnose",
+    "format": "auto",
+    "table": "IPv6 Routing Table - default - 6 entries\nS   ::/0 [1/0]\n     via 2001:DB8::1\nC   2001:DB8::/64 [0/0]\n     via GigabitEthernet0/0, directly connected\nL   2001:DB8::A/128 [0/0]\n     via GigabitEthernet0/0, receive\nO   2001:DB8:1::/48 [110/10]\n     via FE80::2, GigabitEthernet0/0\n     via FE80::4, GigabitEthernet0/0\nS   2001:DB8:1:8::/61 [1/0]\n     via 2001:DB8::3\nL   FF00::/8 [0/0]\n     via Null0, receive\n",
+    "destination": "2001:db8:1:9::1"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "id": "ecmp",
+  "title": "Two equal-cost paths",
+  "request": {
+    "action": "diagnose",
+    "format": "auto",
+    "table": "Gateway of last resort is 192.0.2.1 to network 0.0.0.0\n\nS*    0.0.0.0/0 [1/0] via 192.0.2.1\n      192.0.2.0/24 is variably subnetted, 2 subnets, 2 masks\nC        192.0.2.0/24 is directly connected, GigabitEthernet0/0\nL        192.0.2.10/32 is directly connected, GigabitEthernet0/0\n      198.51.100.0/24 is variably subnetted, 2 subnets, 2 masks\nO        198.51.100.0/24 [110/20] via 192.0.2.2, 00:10:21, GigabitEthernet0/0\n                         [110/20] via 192.0.2.4, 00:10:21, GigabitEthernet0/0\nS        198.51.100.8/29 [1/0] via 192.0.2.3\n",
+    "destination": "198.51.100.77"
+  }
+}
