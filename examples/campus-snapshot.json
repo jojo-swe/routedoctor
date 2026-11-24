@@ -1,0 +1,31 @@
+{
+  "devices": [
+    {
+      "name": "edge",
+      "addresses": ["192.0.2.1"],
+      "routes": [
+        {"prefix": "0.0.0.0/0", "protocol": "static", "next_hop": "192.0.2.2", "admin_distance": 1},
+        {"prefix": "192.0.2.0/30", "protocol": "connected", "interface": "GigabitEthernet0/0", "admin_distance": 0}
+      ]
+    },
+    {
+      "name": "core",
+      "addresses": ["192.0.2.2", "192.0.2.5"],
+      "routes": [
+        {"prefix": "0.0.0.0/0", "protocol": "static", "next_hop": "192.0.2.1", "admin_distance": 1},
+        {"prefix": "192.0.2.0/30", "protocol": "connected", "interface": "GigabitEthernet0/0", "admin_distance": 0},
+        {"prefix": "192.0.2.4/30", "protocol": "connected", "interface": "GigabitEthernet0/1", "admin_distance": 0},
+        {"prefix": "198.51.100.0/24", "protocol": "ospf", "next_hop": "192.0.2.6", "admin_distance": 110, "metric": 20}
+      ]
+    },
+    {
+      "name": "dist",
+      "addresses": ["192.0.2.6", "198.51.100.1"],
+      "routes": [
+        {"prefix": "0.0.0.0/0", "protocol": "static", "next_hop": "192.0.2.5", "admin_distance": 1},
+        {"prefix": "192.0.2.4/30", "protocol": "connected", "interface": "GigabitEthernet0/0", "admin_distance": 0},
+        {"prefix": "198.51.100.0/24", "protocol": "connected", "interface": "GigabitEthernet0/1", "admin_distance": 0}
+      ]
+    }
+  ]
+}
