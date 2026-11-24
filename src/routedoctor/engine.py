@@ -143,7 +143,13 @@ def diagnose_destination(routes: list[Route], destination: str) -> Diagnosis:
     ] if inactive else []
 
     if not candidates:
-        result.findings.append("ERROR no matching active route; traffic is dropped")
+        has_family = any(route.network.version == address.version for route in routes)
+        if not has_family and any(route.active for route in routes):
+            result.findings.append(
+                f"ERROR the table has no IPv{address.version} routes; traffic is dropped"
+            )
+        else:
+            result.findings.append("ERROR no matching active route; traffic is dropped")
         result.findings.extend(skipped)
         return result
 

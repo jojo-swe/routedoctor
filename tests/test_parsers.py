@@ -423,3 +423,104 @@ def test_ios_null_with_a_space_is_null0() -> None:
 def test_linux_kernel_discard_route_is_not_connected() -> None:
     (route,) = parse_linux("unreachable default dev lo proto kernel metric 4294967295\n").routes
     assert (route.protocol, route.admin_distance, route.discard) == ("kernel", 1, "unreachable")
+
+
+# --- FRR, combined pastes, Linux dead paths, odd interface names (findings 4, 5) -----------
+
+FRR = """Codes: K - kernel route, C - connected, S - static, R - RIP,
+       O - OSPF, I - IS-IS, B - BGP, E - EIGRP, N - NHRP,
+       > - selected route, * - FIB route, q - queued, r - rejected, b - backup
+
+K>* 0.0.0.0/0 [0/100] via 192.0.2.1, eth0, 00:10:00
+O   192.0.2.0/24 [110/10] is directly connected, eth0, weight 1, 00:10:00
+C>* 192.0.2.0/24 is directly connected, eth0, 00:10:00
+O>* 198.51.100.0/24 [110/20] via 192.0.2.2, eth0, weight 1, 00:09:00
+"""
+FRR_MESSAGE = "^this looks like FRR or Quagga output, which is not supported$"
+
+
+@pytest.mark.parametrize("fmt", ["auto", "ios", "ios6"])
+def test_frr_output_is_refused(fmt: str) -> None:
+    with pytest.raises(ValueError, match=FRR_MESSAGE):
+        parse_table(FRR, format=fmt)
+
+
+def test_frr_ipv6_output_with_only_selected_routes_is_refused() -> None:
+    text = "C>* 2001:db8:ffff::/64 is directly connected, eth0, 00:10:00\n"
+    with pytest.raises(ValueError, match=FRR_MESSAGE):
+        parse_table(text)
+
+
+def test_ios_user_exec_prompt_is_not_mistaken_for_frr() -> None:
+    text = "Rt>show ip route\nS*    0.0.0.0/0 [1/0] via 192.0.2.1\n"
+    assert parse_table(text).format == "ios"
+
+
+COMBINED = """R1#show ip route
+S*    0.0.0.0/0 [1/0] via 192.0.2.1
+C     192.0.2.0/24 is directly connected, GigabitEthernet0/0
+L     192.0.2.10/32 is directly connected, GigabitEthernet0/0
+R1#show ipv6 route
+S   ::/0 [1/0]
+     via 2001:DB8::1
+C   2001:DB8::/64 [0/0]
+     via GigabitEthernet0/0, directly connected
+L   2001:DB8::A/128 [0/0]
+     via GigabitEthernet0/0, receive
+"""
+
+
+def test_combined_ios_paste_keeps_both_families() -> None:
+    table = parse_table(COMBINED)
+    assert table.format == "ios+ios6"
+    assert table.addresses == ["192.0.2.10", "2001:db8::a"]
+    assert diagnose_destination(table.routes, "2001:db8:5::1").selected.prefix == "::/0"
+    assert diagnose_destination(table.routes, "198.51.100.1").selected.prefix == "0.0.0.0/0"
+
+
+def test_forced_ios_on_a_combined_paste_reads_only_ipv4() -> None:
+    assert {r.prefix for r in parse_table(COMBINED, format="ios").routes} == {
+        "0.0.0.0/0",
+        "192.0.2.0/24",
+    }
+
+
+def test_linux_linkdown_route_is_skipped_as_inactive() -> None:
+    text = (
+        "default via 192.0.2.1 dev eth0 metric 100 linkdown\n"
+        "default via 192.0.2.129 dev eth1 metric 200\n"
+        "192.0.2.0/25 dev eth0 proto kernel linkdown\n"
+        "192.0.2.128/25 dev eth1 proto kernel\n"
+    )
+    result = diagnose_destination(parse_table(text).routes, "203.0.113.1")
+    assert result.ok
+    assert result.selected.next_hop == "192.0.2.129"
+    assert "1 inactive route(s) for this destination were skipped, including 0.0.0.0/0" in (
+        result.findings
+    )
+
+
+def test_linux_dead_multipath_nexthop_is_inactive() -> None:
+    text = (
+        "default proto static metric 100\n"
+        "\tnexthop via 192.0.2.1 dev eth0 weight 1 dead linkdown\n"
+        "\tnexthop via 192.0.2.2 dev eth1 weight 1\n"
+    )
+    assert [(r.next_hop, r.active) for r in parse_linux(text).routes] == [
+        ("192.0.2.1", False),
+        ("192.0.2.2", True),
+    ]
+
+
+def test_ios6_connected_route_on_a_channelized_interface_is_kept() -> None:
+    text = (
+        "C   2001:DB8:AAAA::/64 [0/0]\n     via Serial0/0/0:0, directly connected\n"
+        "S   2001:DB8:BBBB::/64 [1/0]\n     via FE80::12345\n"
+    )
+    (route,) = parse_ios6(text).routes
+    assert (route.prefix, route.interface) == ("2001:db8:aaaa::/64", "Serial0/0/0:0")
+
+
+def test_ios_connected_route_on_a_channelized_interface_is_kept() -> None:
+    (route,) = parse_ios("C     192.0.2.0/24 is directly connected, Serial0/0/0:0\n").routes
+    assert route.interface == "Serial0/0/0:0"

@@ -14,7 +14,7 @@ from .engine import Route, parse_routes
 
 @dataclass(frozen=True, slots=True)
 class ParsedTable:
-    format: str  # "ios" | "ios6" | "linux" | "linux6" | "json"
+    format: str  # "ios" | "ios6" | "ios+ios6" | "linux" | "linux6" | "json"
     routes: list[Route]
     addresses: list[str]  # addresses the device itself owns
 
@@ -69,7 +69,11 @@ _SUMMARY_RE = re.compile(r"\bis a summary,(?P<tail>.*)$")
 _NULL_SPACE_RE = re.compile(r"\bNull\s+0\b", re.IGNORECASE)
 _EIGRP_SUMMARY_DISTANCE = 5
 _AGE_RE = re.compile(r"\d+:\d+:\d+|\d+[wdhms]\d*[wdhms]*")
-_MALFORMED_ADDRESS_RE = re.compile(r"\d+\.\d+\.\d+\.\d+|\S*:\S*")  # an address that failed
+_IPV4_LIKE_RE = re.compile(r"\d+\.\d+\.\d+\.\d+")
+_IPV6_LIKE_RE = re.compile(r"[0-9A-Fa-f:.]+")
+# FRR and Quagga mark the selected route with ">" right after the code: `K>* 0.0.0.0/0 ...`.
+_FRR_ROUTE_RE = re.compile(r"^[A-Za-z]{1,2}\s*>[*=]?\s*[0-9A-Fa-f:.]+/\d+")
+_FRR_MESSAGE = "this looks like FRR or Quagga output, which is not supported"
 _NOT_INTERFACES = {"directly connected", "receive"}
 
 
@@ -86,6 +90,7 @@ def parse_ios6(text: str) -> ParsedTable:
 def _parse_ios_text(
     text: str, table_format: str, route_re: re.Pattern[str], protocols: dict[str, str]
 ) -> ParsedTable:
+    _reject_frr(text)
     items: list[dict[str, object]] = []
     addresses: list[str] = []
     current: dict[str, object] | None = None  # route header that "via" lines attach to
@@ -172,7 +177,7 @@ def _ios_path(text: str) -> tuple[str | None, str | None] | None:
         try:
             hop = ip_address(target)
         except ValueError:
-            if _MALFORMED_ADDRESS_RE.fullmatch(target):
+            if _looks_like_address(target):
                 return None  # an address that does not parse: skip the line
             return None, target  # `via GigabitEthernet0/0, directly connected`
         interface = names[-1] if names else None
@@ -191,6 +196,20 @@ def _ios_path(text: str) -> tuple[str | None, str | None] | None:
         if names:
             return None, names[-1]
     return None
+
+
+def _looks_like_address(text: str) -> bool:
+    """True for text shaped like an IP address, as opposed to an interface name."""
+    if _IPV4_LIKE_RE.fullmatch(text):
+        return True
+    # `Serial0/0/0:0` has a colon but is an interface: only hex digits, dots and colons count.
+    return ":" in text and _IPV6_LIKE_RE.fullmatch(text) is not None
+
+
+def _reject_frr(text: str) -> None:
+    for line in text.splitlines():
+        if _FRR_ROUTE_RE.match(line):
+            raise ValueError(_FRR_MESSAGE)
 
 
 # --- Linux `ip route` / `ip addr` -------------------------------------------------------
@@ -289,6 +308,8 @@ def _linux_path(tokens: list[str]) -> dict[str, Any]:
                 if found["metric"] < 0:
                     raise ValueError("negative metric")
         else:
+            if key in ("linkdown", "dead"):
+                found["active"] = False  # the kernel does not use this path
             index += 1
     hop = found.get("next_hop")
     if hop:
@@ -336,10 +357,17 @@ def parse_table(text: str, format: str = "auto") -> ParsedTable:
     if format == "auto":
         # Order matters: an IOS line is never a valid Linux line, but not the other way round.
         # A parser only wins by finding routes, so prose that merely contains an address does not.
-        for candidate in (_parse_json, _parse_ios_strict, _parse_ios6_strict, parse_linux):
-            table = candidate(text)
-            if table.routes:
-                return table
+        table = _parse_json(text)
+        if table.routes:
+            return table
+        _reject_frr(text)
+        # `show ip route` and `show ipv6 route` are often pasted together: keep both halves.
+        table = _merge_ios(_parse_ios_strict(text), _parse_ios6_strict(text))
+        if table.routes:
+            return table
+        table = parse_linux(text)
+        if table.routes:
+            return table
     else:
         parsers = {"json": _parse_json, "ios": parse_ios, "ios6": parse_ios6}
         table = parsers.get(format, parse_linux)(text)
@@ -358,6 +386,15 @@ def _parse_json(text: str) -> ParsedTable:
     is_route_list = isinstance(items, list) and all(isinstance(item, dict) for item in items)
     routes = parse_routes(items) if is_route_list else []
     return ParsedTable(format="json", routes=routes, addresses=[])
+
+
+def _merge_ios(v4: ParsedTable, v6: ParsedTable) -> ParsedTable:
+    if not v6.routes:
+        return v4
+    if not v4.routes:
+        return v6
+    addresses = list(dict.fromkeys([*v4.addresses, *v6.addresses]))
+    return ParsedTable(format="ios+ios6", routes=[*v4.routes, *v6.routes], addresses=addresses)
 
 
 def _parse_ios_strict(text: str) -> ParsedTable:

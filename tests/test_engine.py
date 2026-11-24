@@ -136,11 +136,28 @@ def test_diagnoses_ipv6_longest_prefix() -> None:
     assert result.recursive_chain == ["2001:db8:ffff::2"]
 
 
-def test_other_ip_version_is_a_missing_route_not_an_error() -> None:
+def test_table_without_routes_of_the_destination_version_says_so() -> None:
     routes = parse_routes([{"prefix": "0.0.0.0/0", "interface": "eth0"}])
     result = diagnose_destination(routes, "2001:db8::1")
     assert not result.ok
-    assert result.findings == ["ERROR no matching active route; traffic is dropped"]
+    assert result.findings == ["ERROR the table has no IPv6 routes; traffic is dropped"]
+    v6 = parse_routes([{"prefix": "::/0", "interface": "eth0"}])
+    assert diagnose_destination(v6, "192.0.2.1").findings == [
+        "ERROR the table has no IPv4 routes; traffic is dropped"
+    ]
+
+
+def test_inactive_routes_of_the_destination_version_keep_the_generic_text() -> None:
+    routes = parse_routes(
+        [
+            {"prefix": "0.0.0.0/0", "interface": "eth0"},
+            {"prefix": "::/0", "interface": "eth0", "active": False},
+        ]
+    )
+    assert diagnose_destination(routes, "2001:db8::1").findings == [
+        "ERROR no matching active route; traffic is dropped",
+        "1 inactive route(s) for this destination were skipped, including ::/0",
+    ]
 
 
 def test_rejects_next_hop_of_other_version() -> None:
