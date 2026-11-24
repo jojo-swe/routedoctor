@@ -29,7 +29,10 @@ def render_trace(result: Trace) -> str:
     lines = [f"RouteDoctor trace from {result.start} to {result.destination}"]
     for number, hop in enumerate(result.hops, start=1):
         route = hop.diagnosis.selected
-        if route:
+        if result.ok and number == len(result.hops) and not hop.diagnosis.ok:
+            # Delivered without a working route: the device owns the destination.
+            lines.append(f"[{number}] {hop.device}: owns {result.destination}")
+        elif route:
             lines.append(f"[{number}] {hop.device}: {route.prefix} via {_target(route)}")
         else:
             lines.append(f"[{number}] {hop.device}: no matching route")

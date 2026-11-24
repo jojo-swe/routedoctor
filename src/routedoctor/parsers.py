@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from ipaddress import ip_address, ip_network
 from typing import Any
 
-from .engine import Route, parse_routes
+from .engine import _MAX_NUMBER, Route, parse_routes
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,13 +110,13 @@ def _parse_ios_text(
         if current is None or current["protocol"] == "local":
             return False
         path = _ios_path(text_after_prefix)
-        if path is None:
+        distance = _ios_distance(text_after_prefix)
+        if path is None or distance is False:
             return False
         next_hop, interface = path
-        distance = _DISTANCE_RE.search(text_after_prefix)
         item = {**current, "next_hop": next_hop, "interface": interface}
         if distance:
-            item["admin_distance"], item["metric"] = int(distance[1]), int(distance[2])
+            item["admin_distance"], item["metric"] = distance
         items.append(item)
         # `via 192.0.2.2, 00:10:21,` wraps: the interface is alone on the next line.
         return interface is None and text_after_prefix.endswith(",")
@@ -161,9 +161,12 @@ def _parse_ios_text(
                 current["admin_distance"] = 0
             elif protocol == "eigrp" and _SUMMARY_RE.search(rest):
                 current["admin_distance"] = _EIGRP_SUMMARY_DISTANCE
-            distance = _DISTANCE_RE.search(rest)
+            distance = _ios_distance(rest)
+            if distance is False:
+                current = None  # an out-of-range [distance/metric]: skip the line
+                continue
             if distance:
-                current["admin_distance"], current["metric"] = int(distance[1]), int(distance[2])
+                current["admin_distance"], current["metric"] = distance
             wrapped = add_path(rest)
             continue
         stripped = line.strip()
@@ -174,6 +177,19 @@ def _parse_ios_text(
         else:
             current = None
     return ParsedTable(format=table_format, routes=parse_routes(items), addresses=addresses)
+
+
+def _ios_distance(text: str) -> tuple[int, int] | None | bool:
+    """`[110/20]` as numbers; None when absent, False when a number is out of range."""
+    found = _DISTANCE_RE.search(text)
+    if not found:
+        return None
+    if len(found[1]) > 10 or len(found[2]) > 10:
+        return False  # also keeps int() far from the interpreter's digit limit
+    distance, metric = int(found[1]), int(found[2])
+    if distance > _MAX_NUMBER or metric > _MAX_NUMBER:
+        return False
+    return distance, metric
 
 
 def _ios_path(text: str) -> tuple[str | None, str | None] | None:
@@ -363,7 +379,7 @@ def parse_table(text: str, format: str = "auto") -> ParsedTable:
     if len(text) > MAX_TEXT_LENGTH:
         raise ValueError(f"input is larger than {MAX_TEXT_LENGTH} characters")
     # Pastes from code blocks or quoted mail are uniformly indented; keep relative indentation.
-    text = textwrap.dedent(text.replace("\r\n", "\n"))
+    text = textwrap.dedent(text.removeprefix("\ufeff").replace("\r\n", "\n"))
     if format == "auto":
         # Order matters: an IOS line is never a valid Linux line, but not the other way round.
         # A parser only wins by finding routes, so prose that merely contains an address does not.

@@ -40,17 +40,25 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _load_json(text: str) -> object:
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        raise
+    except ValueError:
+        # Python's integer-digit limit; its message suggests changing interpreter settings.
+        raise ValueError("a number has too many digits") from None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.trace_from is not None and args.format != "auto":
         parser.error("--format cannot be combined with --trace-from")
     try:
-        text = args.snapshot.read_text(encoding="utf-8")
+        text = args.snapshot.read_text(encoding="utf-8-sig")
         if args.trace_from is not None:
-            result = trace(
-                parse_snapshot(json.loads(text)), args.trace_from, args.destination
-            )
+            result = trace(parse_snapshot(_load_json(text)), args.trace_from, args.destination)
             rendered = render_trace(result)
         else:
             result = diagnose_destination(parse_table(text, args.format).routes, args.destination)

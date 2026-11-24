@@ -74,14 +74,16 @@ def parse_routes(items: list[dict[str, Any]]) -> list[Route]:
     routes: list[Route] = []
     for index, item in enumerate(items):
         try:
+            if not isinstance(item, dict):
+                raise ValueError("route must be an object")
             route = Route(
                 prefix=_text(item, "prefix", required=True),
-                protocol=_text(item, "protocol", default="static"),
+                protocol=_label(item, "protocol", "static"),
                 next_hop=_text(item, "next_hop", optional=True),
-                interface=_text(item, "interface", optional=True),
+                interface=_label(item, "interface", None),
                 admin_distance=_number(item, "admin_distance", 1),
                 metric=_number(item, "metric", 0),
-                active=bool(item.get("active", True)),
+                active=_bool(item, "active", True),
                 discard=_discard(item),
             )
             network = route.network
@@ -92,7 +94,7 @@ def parse_routes(items: list[dict[str, Any]]) -> list[Route]:
                         f"next hop {route.next_hop} is IPv{next_hop.version} "
                         f"but prefix {route.prefix} is IPv{network.version}"
                     )
-        except (KeyError, TypeError, ValueError, OverflowError, AttributeError) as exc:
+        except (TypeError, ValueError, OverflowError, AttributeError) as exc:
             raise ValueError(f"invalid route at index {index}: {exc}") from exc
         routes.append(route)
     return routes
@@ -108,13 +110,28 @@ def _text(
 ) -> Any:
     if key not in item:
         if required:
-            raise KeyError(key)
+            raise ValueError(f"{key} is required")
         return None if optional else default
     value = item[key]
     if value is None and optional:
         return None
     if not isinstance(value, str) or not value:
         raise ValueError(f"{key} must be a non-empty string")
+    return value
+
+
+def _label(item: dict[str, Any], key: str, default: str | None) -> str | None:
+    """Text that is printed verbatim, so it must not be able to forge an output line."""
+    value = _text(item, key, optional=default is None, default=default or "")
+    if value is not None and not (len(value) <= 64 and value.isprintable()):
+        raise ValueError(f"{key} must be 1 to 64 printable characters on one line")
+    return value
+
+
+def _bool(item: dict[str, Any], key: str, default: bool) -> bool:
+    value = item.get(key, default)
+    if not isinstance(value, bool):
+        raise ValueError(f"{key} must be true or false")
     return value
 
 

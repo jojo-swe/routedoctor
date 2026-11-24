@@ -179,7 +179,11 @@ def test_snapshot_merges_declared_and_parsed_addresses() -> None:
         ({"devices": [{"name": "r1", "table": "nonsense"}]}, "device r1: no routes recognised"),
         (
             {"devices": [{"name": "r1", "routes": [], "addresses": "192.0.2.1"}]},
-            "device r1: addresses must be a list",
+            "device r1: addresses text has no inet or inet6 lines",
+        ),
+        (
+            {"devices": [{"name": "r1", "routes": [], "addresses": {}}]},
+            "device r1: addresses must be a list or 'ip addr' text",
         ),
         (
             {"devices": [{"name": "r1", "routes": [], "addresses": [7]}]},

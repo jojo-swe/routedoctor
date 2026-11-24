@@ -37,7 +37,7 @@ def _handle(request_json: str) -> dict[str, Any]:
     if len(request_json) > MAX_REQUEST_LENGTH:
         return _failure(f"request is larger than {MAX_REQUEST_LENGTH} characters")
     try:
-        request = json.loads(request_json)
+        request = json.loads(request_json.removeprefix("\ufeff"))
     except (ValueError, RecursionError):
         return _failure("request is not valid JSON")
     if not isinstance(request, dict):

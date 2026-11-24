@@ -7,7 +7,7 @@ from ipaddress import ip_address
 from typing import Any
 
 from .engine import Diagnosis, Route, diagnose_destination, parse_routes
-from .parsers import parse_table
+from .parsers import parse_ip_addr, parse_table
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,8 +94,13 @@ def _parse_device(index: int, item: Any) -> Device:
 
 
 def _parse_addresses(name: str, raw: Any) -> list[str]:
+    if isinstance(raw, str):
+        # Linux `ip addr` output pasted as is.
+        raw = parse_ip_addr(raw)
+        if not raw:
+            raise ValueError(f"device {name}: addresses text has no inet or inet6 lines")
     if not isinstance(raw, list):
-        raise ValueError(f"device {name}: addresses must be a list")
+        raise ValueError(f"device {name}: addresses must be a list or 'ip addr' text")
     addresses: list[str] = []
     for entry in raw:
         if not isinstance(entry, str):
