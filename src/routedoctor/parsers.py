@@ -251,6 +251,7 @@ def parse_linux(text: str) -> ParsedTable:
     families: set[int] = set()
     defaults: list[dict[str, Any]] = []
     header: dict[str, Any] | None = None  # route line that indented `nexthop` lines belong to
+    group: list[dict[str, Any]] = []  # the `nexthop` routes of the current header
 
     def add(item: dict[str, Any]) -> None:
         family = item.pop("family", None)
@@ -267,18 +268,29 @@ def parse_linux(text: str) -> ParsedTable:
         if not line.strip():
             continue
         tokens = line.split()
+        if line[0].isspace():
+            if header is not None and tokens[0] == "nexthop":
+                _refuse_ipv4_via_ipv6(line, header["prefix"], tokens[1:])
+                try:
+                    item = {**header, **_linux_path(tokens[1:])}
+                except ValueError:
+                    continue  # unreadable address or number: not a usable nexthop
+                group.append(item)
+                add(item)
+            continue
+        _settle_multipath(group)
+        group = []
         try:
-            if line[0].isspace():
-                if header is not None and tokens[0] == "nexthop":
-                    add({**header, **_linux_path(tokens[1:])})
-                continue
             header = _linux_route(tokens)
-            if header is None:
-                continue
-            if header.get("next_hop") or header.get("interface") or header.get("discard"):
-                add(header)
         except ValueError:
             header = None  # unreadable address, prefix or number: not a route line
+        if header is None:
+            continue
+        _refuse_ipv4_via_ipv6(line, header["prefix"], tokens)
+        if header.get("next_hop") or header.get("interface") or header.get("discard"):
+            _settle_single(header)
+            add(header)
+    _settle_multipath(group)
     # A default route with no next hop takes the family of the rest of the table.
     table_default = "::/0" if families == {6} else "0.0.0.0/0"
     for item in defaults:
@@ -287,6 +299,46 @@ def parse_linux(text: str) -> ParsedTable:
     routes = parse_routes(items)
     all_v6 = bool(routes) and all(route.network.version == 6 for route in routes)
     return ParsedTable(format="linux6" if all_v6 else "linux", routes=routes, addresses=[])
+
+
+def _settle_single(item: dict[str, Any]) -> None:
+    """A single-path route on a link without carrier still wins the lookup and drops traffic."""
+    down = item.pop("dead", False) | item.pop("linkdown", False)
+    if down:
+        item["linkdown"] = True
+
+
+def _settle_multipath(group: list[dict[str, Any]]) -> None:
+    """Dead or linkdown nexthops are skipped while another nexthop works; if none works, the
+    route still wins the lookup and drops traffic."""
+    down = [item.pop("dead", False) | item.pop("linkdown", False) for item in group]
+    for item, is_down in zip(group, down, strict=True):
+        if is_down:
+            if all(down):
+                item["linkdown"] = True
+            else:
+                item["active"] = False
+
+
+def _refuse_ipv4_via_ipv6(line: str, prefix: str, tokens: list[str]) -> None:
+    """RFC 5549 (`198.51.100.0/24 via inet6 2001:db8::1`) is valid Linux but not modelled."""
+    if "via" not in tokens:
+        return
+    index = tokens.index("via")
+    following = tokens[index + 1 : index + 3]
+    family = following[0] if following and following[0] in ("inet", "inet6") else None
+    if prefix == "default":
+        refused = family == "inet6"
+    else:
+        hop = following[1] if family and len(following) > 1 else (following or [""])[0]
+        try:
+            refused = (family == "inet6" or ":" in hop) and ip_network(
+                prefix, strict=False
+            ).version == 4
+        except ValueError:
+            refused = False
+    if refused:
+        raise ValueError(f"IPv4 route via an IPv6 gateway is not supported: {line.strip()[:120]}")
 
 
 def _linux_route(tokens: list[str]) -> dict[str, Any] | None:
@@ -335,7 +387,7 @@ def _linux_path(tokens: list[str]) -> dict[str, Any]:
                     raise ValueError("negative metric")
         else:
             if key in ("linkdown", "dead"):
-                found["active"] = False  # the kernel does not use this path
+                found[key] = True  # settled per route by _settle_single / _settle_multipath
             index += 1
     hop = found.get("next_hop")
     if hop:

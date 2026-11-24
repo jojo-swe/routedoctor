@@ -22,6 +22,7 @@ class Route:
     metric: int = 0
     active: bool = True
     discard: str | None = None  # one of DISCARD_KINDS when the route drops traffic
+    linkdown: bool = False  # the exit interface has no carrier: the route wins but drops traffic
     _network: IPv4Network | IPv6Network = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -85,6 +86,7 @@ def parse_routes(items: list[dict[str, Any]]) -> list[Route]:
                 metric=_number(item, "metric", 0),
                 active=_bool(item, "active", True),
                 discard=_discard(item),
+                linkdown=_bool(item, "linkdown", False),
             )
             network = route.network
             if route.next_hop is not None:
@@ -197,6 +199,8 @@ def diagnose_destination(routes: list[Route], destination: str) -> Diagnosis:
 
     if selected.discard:
         result.findings.append(_discard_error(selected))
+    elif selected.linkdown:
+        result.findings.append(_linkdown_error(selected))
     elif selected.next_hop:
         _resolve_next_hop(routes, selected, result)
     elif selected.interface:
@@ -226,6 +230,12 @@ def _discard_error(route: Route) -> str:
     return f"ERROR {route.prefix} is a discard route ({route.discard}); traffic is dropped"
 
 
+def _linkdown_error(route: Route) -> str:
+    return (
+        f"ERROR exit interface {route.interface} has no carrier (linkdown); traffic is dropped"
+    )
+
+
 def _best_match(routes: list[Route], address: IPv4Address | IPv6Address) -> Route | None:
     matches = [route for route in _routes_for(routes, address) if route.active]
     matches.sort(key=lambda route: (-route.network.prefixlen, route.admin_distance, route.metric))
@@ -235,9 +245,9 @@ def _best_match(routes: list[Route], address: IPv4Address | IPv6Address) -> Rout
 def _resolve_next_hop(routes: list[Route], route: Route, result: Diagnosis) -> None:
     """Follow next hops until the packet leaves through an interface, or report why it cannot.
 
-    A route that names both a next hop and an interface (Linux `via X dev Y`, an IOS fully
-    specified static route) reaches the next hop on that interface when no other route covers
-    the next hop: Linux `onlink` gateways and IPv6 link-local next hops work this way.
+    A route that names both a next hop and an interface (Linux `via X dev Y`, an IOS route with
+    `via X, ..., Interface`, a fully specified static route) leaves through that interface to that
+    next hop; it is not resolved further. Only a next hop without an interface is looked up again.
     """
     visited: set[str] = set()
     while route.next_hop:
@@ -253,19 +263,16 @@ def _resolve_next_hop(routes: list[Route], route: Route, result: Diagnosis) -> N
         visited.add(next_hop)
         result.recursive_chain.append(next_hop)
 
+        if route.interface:
+            result.findings.append(f"Next hop {next_hop} is reached through {route.interface}")
+            return
         address = ip_address(next_hop)
         if address.version == 6 and address.is_link_local:
-            if route.interface:
-                result.findings.append(f"Next hop {next_hop} is on-link through {route.interface}")
-            else:
-                result.findings.append(
-                    f"ERROR next hop {next_hop} is link-local and has no exit interface"
-                )
+            result.findings.append(
+                f"ERROR next hop {next_hop} is link-local and has no exit interface"
+            )
             return
         resolution = _best_match(routes, address)
-        if route.interface and (resolution is None or resolution.network == route.network):
-            result.findings.append(f"Next hop {next_hop} is on-link through {route.interface}")
-            return
         if resolution is None:
             result.findings.append(f"ERROR next hop {next_hop} is unresolved")
             return
@@ -273,6 +280,9 @@ def _resolve_next_hop(routes: list[Route], route: Route, result: Diagnosis) -> N
         result.findings.append(f"Next hop {next_hop} resolves through {resolution.prefix}")
         if resolution.discard:
             result.findings.append(_discard_error(resolution))
+            return
+        if resolution.linkdown:
+            result.findings.append(_linkdown_error(resolution))
             return
         if not resolution.next_hop:
             if resolution.interface:

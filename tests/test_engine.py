@@ -319,7 +319,7 @@ def test_json_discard_field_must_be_a_known_kind() -> None:
         parse_routes([{"prefix": "203.0.113.0/24", "discard": "drop"}])
 
 
-def test_route_dict_keeps_the_old_keys_and_adds_discard() -> None:
+def test_route_dict_keeps_the_old_keys_and_adds_discard_and_linkdown() -> None:
     (route,) = parse_routes([{"prefix": "192.0.2.0/24", "interface": "eth0"}])
     assert route.to_dict() == {
         "prefix": "192.0.2.0/24",
@@ -330,6 +330,7 @@ def test_route_dict_keeps_the_old_keys_and_adds_discard() -> None:
         "metric": 0,
         "active": True,
         "discard": None,
+        "linkdown": False,
     }
 
 
@@ -337,20 +338,20 @@ def test_linux_onlink_gateway_terminates_on_its_interface() -> None:
     table = parse_table("default via 203.0.113.1 dev eth0 onlink\n")
     result = diagnose_destination(table.routes, "198.51.100.7")
     assert result.ok, result.findings
-    assert "Next hop 203.0.113.1 is on-link through eth0" in result.findings
+    assert "Next hop 203.0.113.1 is reached through eth0" in result.findings
     assert result.recursive_chain == ["203.0.113.1"]
 
 
-def test_gateway_with_interface_and_no_covering_route_is_on_link() -> None:
+def test_gateway_with_interface_and_no_covering_route_is_reached_through_it() -> None:
     routes = parse_routes(
         [{"prefix": "198.51.100.0/24", "next_hop": "203.0.113.1", "interface": "Gi0/1"}]
     )
     result = diagnose_destination(routes, "198.51.100.9")
     assert result.ok
-    assert result.findings[-1] == "Next hop 203.0.113.1 is on-link through Gi0/1"
+    assert result.findings[-1] == "Next hop 203.0.113.1 is reached through Gi0/1"
 
 
-def test_gateway_with_interface_still_resolves_through_another_route() -> None:
+def test_gateway_with_interface_is_not_resolved_through_another_route() -> None:
     routes = parse_routes(
         [
             {"prefix": "198.51.100.0/24", "next_hop": "192.0.2.1", "interface": "eth0"},
@@ -358,17 +359,14 @@ def test_gateway_with_interface_still_resolves_through_another_route() -> None:
         ]
     )
     result = diagnose_destination(routes, "198.51.100.9")
-    assert result.findings[1:] == [
-        "Next hop 192.0.2.1 resolves through 192.0.2.0/24",
-        "Recursive resolution terminates on eth0",
-    ]
+    assert result.findings[1:] == ["Next hop 192.0.2.1 is reached through eth0"]
 
 
 def test_json_link_local_next_hop_with_interface_terminates_on_the_interface() -> None:
     routes = parse_routes([{"prefix": "::/0", "next_hop": "fe80::1", "interface": "eth0"}])
     result = diagnose_destination(routes, "2001:db8::5")
     assert result.ok, result.findings
-    assert "Next hop fe80::1 is on-link through eth0" in result.findings
+    assert "Next hop fe80::1 is reached through eth0" in result.findings
 
 
 def test_json_link_local_next_hop_without_interface_is_an_error() -> None:

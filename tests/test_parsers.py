@@ -485,7 +485,7 @@ def test_forced_ios_on_a_combined_paste_reads_only_ipv4() -> None:
     }
 
 
-def test_linux_linkdown_route_is_skipped_as_inactive() -> None:
+def test_linux_linkdown_route_still_wins_and_drops() -> None:
     text = (
         "default via 192.0.2.1 dev eth0 metric 100 linkdown\n"
         "default via 192.0.2.129 dev eth1 metric 200\n"
@@ -493,10 +493,11 @@ def test_linux_linkdown_route_is_skipped_as_inactive() -> None:
         "192.0.2.128/25 dev eth1 proto kernel\n"
     )
     result = diagnose_destination(parse_table(text).routes, "203.0.113.1")
-    assert result.ok
-    assert result.selected.next_hop == "192.0.2.129"
-    assert "1 inactive route(s) for this destination were skipped, including 0.0.0.0/0" in (
-        result.findings
+    assert not result.ok
+    assert result.selected.next_hop == "192.0.2.1"
+    assert (
+        "ERROR exit interface eth0 has no carrier (linkdown); traffic is dropped"
+        in result.findings
     )
 
 

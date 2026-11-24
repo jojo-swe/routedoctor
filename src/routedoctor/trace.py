@@ -48,8 +48,11 @@ class Trace:
         }
 
 
-# Protocols of a route that ends at the destination's own network.
-_DELIVERING_PROTOCOLS = {"connected", "local"}
+def _delivers(route: Route) -> bool:
+    """A connected network, or a local route for one of the device's own addresses."""
+    if route.protocol == "connected":
+        return True
+    return route.protocol == "local" and route.network.prefixlen == route.network.max_prefixlen
 
 
 def _canonical(address: str) -> str:
@@ -154,7 +157,7 @@ def trace(devices: list[Device], start: str, destination: str, max_hops: int = 3
         if not diagnosis.recursive_chain:
             # The route leaves through an interface with no next-hop address. Only a connected
             # network delivers there; otherwise the device on the far side is unknown.
-            if selected is not None and selected.protocol in _DELIVERING_PROTOCOLS:
+            if selected is not None and _delivers(selected):
                 return _finish(result, "delivered", current.name)
             exit_interface = selected.interface if selected is not None else None
             return _finish(
