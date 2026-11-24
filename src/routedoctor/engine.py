@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+import re
+from dataclasses import dataclass, field, fields
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network, ip_address, ip_network
 from typing import Any
+
+# A discard route matches like any other route, and the device then drops the packet.
+DISCARD_KINDS = ("blackhole", "unreachable", "prohibit", "Null0")
+_NULL0_RE = re.compile(r"null\s*0", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,10 +21,19 @@ class Route:
     admin_distance: int = 1
     metric: int = 0
     active: bool = True
+    discard: str | None = None  # one of DISCARD_KINDS when the route drops traffic
+
+    def __post_init__(self) -> None:
+        # Cisco Null0 is a discard interface whatever else the route says.
+        if self.discard is None and self.interface and _NULL0_RE.fullmatch(self.interface):
+            object.__setattr__(self, "discard", "Null0")
 
     @property
     def network(self) -> IPv4Network | IPv6Network:
         return ip_network(self.prefix, strict=False)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {item.name: getattr(self, item.name) for item in fields(self)}
 
 
 @dataclass(slots=True)
@@ -41,10 +55,10 @@ class Diagnosis:
         return {
             "destination": self.destination,
             "ok": self.ok,
-            "selected": asdict(self.selected) if self.selected else None,
-            "candidates": [asdict(route) for route in self.candidates],
+            "selected": self.selected.to_dict() if self.selected else None,
+            "candidates": [route.to_dict() for route in self.candidates],
             "recursive_chain": self.recursive_chain,
-            "equal_cost": [asdict(route) for route in self.equal_cost],
+            "equal_cost": [route.to_dict() for route in self.equal_cost],
             "findings": self.findings,
         }
 
@@ -64,6 +78,7 @@ def parse_routes(items: list[dict[str, Any]]) -> list[Route]:
                 admin_distance=_number(item, "admin_distance", 1),
                 metric=_number(item, "metric", 0),
                 active=bool(item.get("active", True)),
+                discard=_discard(item),
             )
             network = route.network
             if route.next_hop is not None:
@@ -96,6 +111,13 @@ def _text(
         return None
     if not isinstance(value, str) or not value:
         raise ValueError(f"{key} must be a non-empty string")
+    return value
+
+
+def _discard(item: dict[str, Any]) -> str | None:
+    value = item.get("discard")
+    if value is not None and value not in DISCARD_KINDS:
+        raise ValueError(f"discard must be one of {', '.join(DISCARD_KINDS)}")
     return value
 
 
@@ -137,15 +159,19 @@ def diagnose_destination(routes: list[Route], destination: str) -> Diagnosis:
     ]
     if len(equal_cost) > 1:
         result.equal_cost = equal_cost
-        paths = ", ".join(route.next_hop or route.interface or "unresolved" for route in equal_cost)
+        paths = ", ".join(
+            route.next_hop or route.interface or route.discard or "unresolved" for route in equal_cost
+        )
         result.findings.append(f"{len(equal_cost)} equal-cost paths via {paths}; showing the first")
     elif len(same_prefix) > 1:
         result.findings.append(
             f"Tie broken by administrative distance {selected.admin_distance} and metric {selected.metric}"
         )
 
-    if selected.next_hop:
-        _resolve_next_hop(routes, selected.next_hop, result, visited=set())
+    if selected.discard:
+        result.findings.append(_discard_error(selected))
+    elif selected.next_hop:
+        _resolve_next_hop(routes, selected, result)
     elif selected.interface:
         result.findings.append(f"Forward directly through {selected.interface}")
     else:
@@ -169,29 +195,61 @@ def _routes_for(routes: list[Route], address: IPv4Address | IPv6Address) -> list
     ]
 
 
-def _resolve_next_hop(
-    routes: list[Route], next_hop: str, result: Diagnosis, visited: set[str]
-) -> None:
-    if next_hop in visited:
-        result.findings.append(f"ERROR recursive routing loop while resolving {next_hop}")
-        return
-    visited.add(next_hop)
-    result.recursive_chain.append(next_hop)
+def _discard_error(route: Route) -> str:
+    return f"ERROR {route.prefix} is a discard route ({route.discard}); traffic is dropped"
 
-    address = ip_address(next_hop)
+
+def _best_match(routes: list[Route], address: IPv4Address | IPv6Address) -> Route | None:
     matches = [route for route in _routes_for(routes, address) if route.active]
     matches.sort(key=lambda route: (-route.network.prefixlen, route.admin_distance, route.metric))
-    if not matches:
-        result.findings.append(f"ERROR next hop {next_hop} is unresolved")
-        return
+    return matches[0] if matches else None
 
-    resolution = matches[0]
-    result.findings.append(f"Next hop {next_hop} resolves through {resolution.prefix}")
-    if resolution.next_hop:
-        _resolve_next_hop(routes, resolution.next_hop, result, visited)
-    elif resolution.interface:
-        result.findings.append(f"Recursive resolution terminates on {resolution.interface}")
-    else:
-        result.findings.append(
-            f"ERROR resolving route {resolution.prefix} has neither next hop nor interface"
-        )
+
+def _resolve_next_hop(routes: list[Route], route: Route, result: Diagnosis) -> None:
+    """Follow next hops until the packet leaves through an interface, or report why it cannot.
+
+    A route that names both a next hop and an interface (Linux `via X dev Y`, an IOS fully
+    specified static route) reaches the next hop on that interface when no other route covers
+    the next hop: Linux `onlink` gateways and IPv6 link-local next hops work this way.
+    """
+    visited: set[str] = set()
+    while route.next_hop:
+        next_hop = route.next_hop
+        if next_hop in visited:
+            result.findings.append(f"ERROR recursive routing loop while resolving {next_hop}")
+            return
+        visited.add(next_hop)
+        result.recursive_chain.append(next_hop)
+
+        address = ip_address(next_hop)
+        if address.version == 6 and address.is_link_local:
+            if route.interface:
+                result.findings.append(f"Next hop {next_hop} is on-link through {route.interface}")
+            else:
+                result.findings.append(
+                    f"ERROR next hop {next_hop} is link-local and has no exit interface"
+                )
+            return
+        resolution = _best_match(routes, address)
+        if route.interface and (resolution is None or resolution.network == route.network):
+            result.findings.append(f"Next hop {next_hop} is on-link through {route.interface}")
+            return
+        if resolution is None:
+            result.findings.append(f"ERROR next hop {next_hop} is unresolved")
+            return
+
+        result.findings.append(f"Next hop {next_hop} resolves through {resolution.prefix}")
+        if resolution.discard:
+            result.findings.append(_discard_error(resolution))
+            return
+        if not resolution.next_hop:
+            if resolution.interface:
+                result.findings.append(
+                    f"Recursive resolution terminates on {resolution.interface}"
+                )
+            else:
+                result.findings.append(
+                    f"ERROR resolving route {resolution.prefix} has neither next hop nor interface"
+                )
+            return
+        route = resolution

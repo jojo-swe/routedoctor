@@ -64,6 +64,10 @@ _CODE_RE = re.compile(r"[A-Za-z]+[0-9]?")
 _DISTANCE_RE = re.compile(r"\[(\d+)/(\d+)\]")
 _VIA_RE = re.compile(r"\bvia\s+(?P<target>\S+?)(?:,\s*(?P<tail>.*))?$")
 _CONNECTED_RE = re.compile(r"directly connected,\s*(?P<interface>\S+)")
+# `D  203.0.113.192/26 is a summary, 00:12:01, Null0`: an EIGRP summary's discard route.
+_SUMMARY_RE = re.compile(r"\bis a summary,(?P<tail>.*)$")
+_NULL_SPACE_RE = re.compile(r"\bNull\s+0\b", re.IGNORECASE)
+_EIGRP_SUMMARY_DISTANCE = 5
 _AGE_RE = re.compile(r"\d+:\d+:\d+|\d+[wdhms]\d*[wdhms]*")
 _MALFORMED_ADDRESS_RE = re.compile(r"\d+\.\d+\.\d+\.\d+|\S*:\S*")  # an address that failed
 _NOT_INTERFACES = {"directly connected", "receive"}
@@ -140,6 +144,8 @@ def _parse_ios_text(
             current = {"prefix": str(network), "protocol": protocol}
             if protocol == "connected":
                 current["admin_distance"] = 0
+            elif protocol == "eigrp" and _SUMMARY_RE.search(rest):
+                current["admin_distance"] = _EIGRP_SUMMARY_DISTANCE
             distance = _DISTANCE_RE.search(rest)
             if distance:
                 current["admin_distance"], current["metric"] = int(distance[1]), int(distance[2])
@@ -156,7 +162,8 @@ def _parse_ios_text(
 
 
 def _ios_path(text: str) -> tuple[str | None, str | None] | None:
-    """Return (next_hop, interface) from `via ...` or `is directly connected, ...` text."""
+    """Return (next_hop, interface) from `via ...`, `is directly connected, ...` or summary text."""
+    text = _NULL_SPACE_RE.sub("Null0", text)
     via = _VIA_RE.search(text)
     if via:
         target = via["target"]
@@ -177,12 +184,19 @@ def _ios_path(text: str) -> tuple[str | None, str | None] | None:
     connected = _CONNECTED_RE.search(text)
     if connected:
         return None, connected["interface"]
+    summary = _SUMMARY_RE.search(text)
+    if summary:
+        fields = [f.strip() for f in summary["tail"].split(",") if f.strip()]
+        names = [f for f in fields if not _AGE_RE.fullmatch(f)]
+        if names:
+            return None, names[-1]
     return None
 
 
 # --- Linux `ip route` / `ip addr` -------------------------------------------------------
 
-_LINUX_INACTIVE_TYPES = {"unreachable", "blackhole", "prohibit"}
+# Route types whose packets the kernel drops; they still win longest-prefix match.
+_LINUX_DISCARD_TYPES = {"unreachable", "blackhole", "prohibit"}
 
 
 def parse_linux(text: str) -> ParsedTable:
@@ -216,7 +230,7 @@ def parse_linux(text: str) -> ParsedTable:
             header = _linux_route(tokens)
             if header is None:
                 continue
-            if header.get("next_hop") or header.get("interface") or not header["active"]:
+            if header.get("next_hop") or header.get("interface") or header.get("discard"):
                 add(header)
         except ValueError:
             header = None  # unreadable address, prefix or number: not a route line
@@ -232,9 +246,9 @@ def parse_linux(text: str) -> ParsedTable:
 
 def _linux_route(tokens: list[str]) -> dict[str, Any] | None:
     """Read one column-0 `ip route` line; None when it does not start like a route."""
-    active = True
-    if tokens[0] in _LINUX_INACTIVE_TYPES:
-        active = False
+    discard = None
+    if tokens[0] in _LINUX_DISCARD_TYPES:
+        discard = tokens[0]
         tokens = tokens[1:]
         if not tokens:
             return None
@@ -243,11 +257,13 @@ def _linux_route(tokens: list[str]) -> dict[str, Any] | None:
         prefix = str(ip_network(prefix, strict=False))  # ValueError: not a route line
     path = _linux_path(tokens[1:])
     protocol = path.pop("proto", None)
-    if protocol == "kernel":
+    if protocol == "kernel" and discard is None:
         item = {"protocol": "connected", "admin_distance": 0}
     else:
+        # A kernel discard route (`unreachable default dev lo proto kernel`) is not a connected
+        # network; it competes on metric like the kernel does.
         item = {"protocol": protocol or "static", "admin_distance": 1}
-    return {"prefix": prefix, "active": active, **item, **path}
+    return {"prefix": prefix, "active": True, "discard": discard, **item, **path}
 
 
 def _linux_path(tokens: list[str]) -> dict[str, Any]:

@@ -24,3 +24,13 @@ def test_render_matches_readme_example() -> None:
 
     assert text == EXPECTED
     assert EXPECTED in (ROOT / "README.md").read_text(encoding="utf-8")
+
+
+def test_render_names_the_discard_kind_of_the_selected_route() -> None:
+    routes = parse_routes([{"prefix": "203.0.113.128/25", "discard": "unreachable"}])
+    lines = render_diagnosis(diagnose_destination(routes, "203.0.113.200")).splitlines()
+    assert lines[2:] == [
+        "Selected: 203.0.113.128/25 via discard (unreachable) [static]",
+        "+ Selected 203.0.113.128/25 by longest-prefix match (/25)",
+        "! ERROR 203.0.113.128/25 is a discard route (unreachable); traffic is dropped",
+    ]

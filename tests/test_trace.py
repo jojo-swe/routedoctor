@@ -115,7 +115,9 @@ def test_trace_across_two_ipv6_devices() -> None:
         ),
         Device(
             "b",
-            parse_routes([{"prefix": "2001:db8:2::/64", "interface": "eth1"}]),
+            parse_routes(
+                [{"prefix": "2001:db8:2::/64", "interface": "eth1", "protocol": "connected"}]
+            ),
             ["2001:db8:1::2"],
         ),
     ]
@@ -222,10 +224,14 @@ def test_render_trace_delivered() -> None:
 
 
 def test_trace_survives_a_route_without_a_usable_chain() -> None:
-    # Built by hand, bypassing parse_routes: a falsy next hop leaves the chain empty.
+    # Built by hand, bypassing parse_routes: a falsy next hop leaves the chain empty. The route
+    # is a static route out of an interface, so the next device is unknown, not "delivered".
     route = Route("0.0.0.0/0", next_hop="", interface="eth0")
     result = trace([Device("solo", [route], ["192.0.2.1"])], "solo", "203.0.113.9")
-    assert result.outcome == "delivered"
+    assert (result.outcome, result.detail) == (
+        "unknown_next_hop",
+        "solo: leaves via eth0; next device unknown",
+    )
 
 
 def test_trace_reaches_hop_limit_on_a_three_device_chain() -> None:
@@ -271,3 +277,131 @@ def test_snapshot_deduplicates_addresses_within_a_table(monkeypatch: pytest.Monk
     )
     (device,) = parse_snapshot({"devices": [{"name": "r1", "table": "ignored"}]})
     assert device.addresses == ["192.0.2.1"]
+
+
+# --- Discard routes and interface-only routes in a trace (findings 1 to 3) -----------------
+
+R1_OSPF6 = """S   ::/0 [1/0]
+     via 2001:DB8:FFFF::1
+C   2001:DB8:FFFF::/64 [0/0]
+     via GigabitEthernet0/0, directly connected
+L   2001:DB8:FFFF::2/128 [0/0]
+     via GigabitEthernet0/0, receive
+O   2001:DB8:1::/48 [110/2]
+     via FE80::2, GigabitEthernet0/1
+"""
+R2_NO_ROUTE = """C   2001:DB8:FFFF::/64 [0/0]
+     via GigabitEthernet0/0, directly connected
+L   2001:DB8:FFFF::1/128 [0/0]
+     via GigabitEthernet0/0, receive
+"""
+
+
+def test_trace_stops_at_a_link_local_next_hop_instead_of_delivering() -> None:
+    devices = parse_snapshot(
+        {"devices": [{"name": "r1", "table": R1_OSPF6}, {"name": "r2", "table": R2_NO_ROUTE}]}
+    )
+    result = trace(devices, "r1", "2001:db8:1::9")
+    assert (result.outcome, result.detail) == (
+        "unknown_next_hop",
+        "r1: leaves via GigabitEthernet0/1; next device unknown",
+    )
+    assert not result.ok
+    assert render_trace(result).splitlines()[-1] == (
+        "! unknown_next_hop: r1: leaves via GigabitEthernet0/1; next device unknown"
+    )
+
+
+def test_trace_interface_only_static_route_is_not_delivery() -> None:
+    routes = parse_routes([{"prefix": "203.0.113.0/24", "interface": "eth1"}])
+    result = trace([Device("solo", routes, ["192.0.2.1"])], "solo", "203.0.113.9")
+    assert (result.outcome, result.detail) == (
+        "unknown_next_hop",
+        "solo: leaves via eth1; next device unknown",
+    )
+
+
+def test_trace_delivers_on_a_connected_route_only() -> None:
+    routes = parse_routes(
+        [{"prefix": "203.0.113.0/24", "interface": "eth1", "protocol": "connected"}]
+    )
+    result = trace([Device("solo", routes, ["192.0.2.1"])], "solo", "203.0.113.9")
+    assert (result.outcome, result.detail) == ("delivered", "solo")
+
+
+def test_trace_linux_kernel_route_counts_as_connected() -> None:
+    (device,) = parse_snapshot(
+        {
+            "devices": [
+                {
+                    "name": "h",
+                    "addresses": ["192.0.2.10"],
+                    "table": "192.0.2.0/24 dev eth0 proto kernel scope link\n",
+                }
+            ]
+        }
+    )
+    assert trace([device], "h", "192.0.2.77").outcome == "delivered"
+
+
+def test_trace_reports_a_linux_blackhole_route() -> None:
+    devices = parse_snapshot(
+        {
+            "devices": [
+                {
+                    "name": "h",
+                    "addresses": ["192.0.2.10"],
+                    "table": "default via 192.0.2.1 dev eth0\n"
+                    "192.0.2.0/24 dev eth0 proto kernel\n"
+                    "blackhole 203.0.113.0/24\n",
+                },
+                {
+                    "name": "gw",
+                    "addresses": ["192.0.2.1"],
+                    "routes": [
+                        {"prefix": "192.0.2.0/24", "interface": "e0", "protocol": "connected"},
+                        {"prefix": "203.0.113.0/24", "interface": "e1", "protocol": "connected"},
+                    ],
+                },
+            ]
+        }
+    )
+    result = trace(devices, "h", "203.0.113.9")
+    assert (result.outcome, result.detail) == (
+        "blackhole",
+        "h: 203.0.113.0/24 is a discard route (blackhole); traffic is dropped",
+    )
+    assert [hop.device for hop in result.hops] == ["h"]
+    assert "[1] h: 203.0.113.0/24 via discard (blackhole)" in render_trace(result)
+
+
+def test_trace_reports_a_null0_route() -> None:
+    table = (
+        "S     203.0.113.0/24 is directly connected, Null0\n"
+        "C     192.0.2.0/30 is directly connected, GigabitEthernet0/0\n"
+        "L     192.0.2.1/32 is directly connected, GigabitEthernet0/0\n"
+    )
+    result = trace(parse_snapshot({"devices": [{"name": "a", "table": table}]}), "a", "203.0.113.9")
+    assert (result.outcome, result.detail) == (
+        "blackhole",
+        "a: 203.0.113.0/24 is a discard route (Null0); traffic is dropped",
+    )
+
+
+def test_trace_follows_an_onlink_gateway_to_the_next_device() -> None:
+    devices = [
+        Device(
+            "host",
+            parse_routes([{"prefix": "0.0.0.0/0", "next_hop": "203.0.113.1", "interface": "eth0"}]),
+            ["203.0.113.50"],
+        ),
+        Device(
+            "gw",
+            parse_routes(
+                [{"prefix": "198.51.100.0/24", "interface": "eth1", "protocol": "connected"}]
+            ),
+            ["203.0.113.1"],
+        ),
+    ]
+    result = trace(devices, "host", "198.51.100.7")
+    assert (result.outcome, result.detail) == ("delivered", "gw")

@@ -28,3 +28,7 @@ def test_cli_rejects_format_with_trace() -> None:
 
 def test_cli_forced_format() -> None:
     assert main(["tests/fixtures/ios-show-ip-route.txt", "198.51.100.9", "--format", "ios"]) == 0
+
+
+def test_cli_exits_one_for_a_linux_unreachable_route() -> None:
+    assert main(["tests/fixtures/linux-ip-route.txt", "203.0.113.200"]) == 1

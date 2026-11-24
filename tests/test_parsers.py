@@ -92,7 +92,8 @@ def test_parses_linux_ip_route() -> None:
     assert (default.next_hop, default.interface, default.metric) == ("192.0.2.1", "eth0", 100)
     assert (default.protocol, default.admin_distance) == ("dhcp", 1)
     assert any(r.protocol == "connected" and r.admin_distance == 0 for r in table.routes)
-    assert any(not r.active for r in table.routes)
+    assert [r.discard for r in table.routes if r.discard] == ["unreachable"]
+    assert all(r.active for r in table.routes)
     assert table.addresses == []
 
 
@@ -107,7 +108,12 @@ def test_linux_static_and_unreachable_routes() -> None:
         True,
     )
     blocked = by_prefix["203.0.113.128/25"]
-    assert (blocked.active, blocked.next_hop, blocked.interface) == (False, None, None)
+    assert (blocked.active, blocked.discard, blocked.next_hop, blocked.interface) == (
+        True,
+        "unreachable",
+        None,
+        None,
+    )
 
 
 def test_parses_linux_ip_6_route() -> None:
@@ -121,7 +127,8 @@ def test_parses_linux_ip_6_route() -> None:
         "ra",
     )
     assert by_prefix["fe80::/64"].protocol == "connected"
-    assert not by_prefix["2001:db8:dead::/48"].active
+    dead = by_prefix["2001:db8:dead::/48"]
+    assert (dead.active, dead.discard, dead.interface) == (True, "unreachable", "lo")
     assert len(table.routes) == 5
 
 
@@ -372,16 +379,19 @@ def test_linux_trailing_whitespace_is_ignored() -> None:
     ]
 
 
-def test_linux_unreachable_default_is_an_inactive_default() -> None:
+def test_linux_unreachable_default_is_a_discard_default() -> None:
     text = (
         "2001:db8:ffff::/64 dev eth0 proto kernel metric 256 pref medium\n"
         "unreachable default dev lo metric 4278198272 pref medium\n"
     )
     table = parse_table(text)
     blocked = next(r for r in table.routes if r.prefix == "::/0")
-    assert (blocked.active, blocked.metric) == (False, 4278198272)
+    assert (blocked.active, blocked.discard, blocked.metric) == (True, "unreachable", 4278198272)
     v4 = parse_linux("unreachable default metric 5\n192.0.2.0/24 dev eth0\n")
-    assert [(r.prefix, r.active) for r in v4.routes] == [("0.0.0.0/0", False), ("192.0.2.0/24", True)]
+    assert [(r.prefix, r.discard) for r in v4.routes] == [
+        ("0.0.0.0/0", "unreachable"),
+        ("192.0.2.0/24", None),
+    ]
 
 
 def test_linux_negative_metric_line_is_skipped() -> None:
@@ -392,3 +402,24 @@ def test_linux_negative_metric_line_is_skipped() -> None:
 def test_forced_linux_on_ipv6_only_text_reports_linux6() -> None:
     text = FIXTURES.joinpath("linux-ip-6-route.txt").read_text()
     assert parse_table(text, format="linux").format == "linux6"
+
+
+def test_ios_summary_to_null0_is_parsed_as_a_discard_route() -> None:
+    (route,) = parse_ios("D        203.0.113.192/26 is a summary, 00:12:01, Null0\n").routes
+    assert (route.prefix, route.protocol, route.interface, route.discard) == (
+        "203.0.113.192/26",
+        "eigrp",
+        "Null0",
+        "Null0",
+    )
+    assert route.admin_distance == 5
+
+
+def test_ios_null_with_a_space_is_null0() -> None:
+    (route,) = parse_ios("S     203.0.113.0/24 is directly connected, Null 0\n").routes
+    assert (route.interface, route.discard) == ("Null0", "Null0")
+
+
+def test_linux_kernel_discard_route_is_not_connected() -> None:
+    (route,) = parse_linux("unreachable default dev lo proto kernel metric 4294967295\n").routes
+    assert (route.protocol, route.admin_distance, route.discard) == ("kernel", 1, "unreachable")

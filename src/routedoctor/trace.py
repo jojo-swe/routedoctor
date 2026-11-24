@@ -48,6 +48,10 @@ class Trace:
         }
 
 
+# Protocols of a route that ends at the destination's own network.
+_DELIVERING_PROTOCOLS = {"connected", "local"}
+
+
 def _canonical(address: str) -> str:
     return str(ip_address(address))
 
@@ -135,17 +139,24 @@ def trace(devices: list[Device], start: str, destination: str, max_hops: int = 3
         result.hops.append(Hop(current.name, diagnosis))
         path.append(current.name)
 
-        selected = diagnosis.selected
-        if owners.get(target) == current.name or (
-            diagnosis.ok and selected is not None and selected.next_hop is None
-        ):
+        if owners.get(target) == current.name:
             return _finish(result, "delivered", current.name)
         if not diagnosis.ok:
             error = next(f for f in diagnosis.findings if f.startswith("ERROR"))
             return _finish(result, "blackhole", f"{current.name}: {error.removeprefix('ERROR ')}")
 
+        selected = diagnosis.selected
         if not diagnosis.recursive_chain:
-            return _finish(result, "delivered", current.name)
+            # The route leaves through an interface with no next-hop address. Only a connected
+            # network delivers there; otherwise the device on the far side is unknown.
+            if selected is not None and selected.protocol in _DELIVERING_PROTOCOLS:
+                return _finish(result, "delivered", current.name)
+            exit_interface = selected.interface if selected is not None else None
+            return _finish(
+                result,
+                "unknown_next_hop",
+                f"{current.name}: leaves via {exit_interface}; next device unknown",
+            )
         next_hop = diagnosis.recursive_chain[-1]
         owner = owners.get(_canonical(next_hop))
         if owner is None:
