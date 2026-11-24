@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from ipaddress import IPv4Address, IPv4Network, ip_address, ip_network
+from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network, ip_address, ip_network
 from typing import Any
 
 
@@ -18,7 +18,7 @@ class Route:
     active: bool = True
 
     @property
-    def network(self) -> IPv4Network:
+    def network(self) -> IPv4Network | IPv6Network:
         return ip_network(self.prefix, strict=False)
 
 
@@ -62,9 +62,14 @@ def parse_routes(items: list[dict[str, Any]]) -> list[Route]:
                 metric=int(item.get("metric", 0)),
                 active=bool(item.get("active", True)),
             )
-            _ = route.network
+            network = route.network
             if route.next_hop is not None:
-                ip_address(route.next_hop)
+                next_hop = ip_address(route.next_hop)
+                if next_hop.version != network.version:
+                    raise ValueError(
+                        f"next hop {route.next_hop} is IPv{next_hop.version} "
+                        f"but prefix {route.prefix} is IPv{network.version}"
+                    )
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError(f"invalid route at index {index}: {exc}") from exc
         routes.append(route)
@@ -73,15 +78,13 @@ def parse_routes(items: list[dict[str, Any]]) -> list[Route]:
 
 def diagnose_destination(routes: list[Route], destination: str) -> Diagnosis:
     address = ip_address(destination)
-    if not isinstance(address, IPv4Address):
-        raise ValueError("only IPv4 is supported in this release")
 
-    candidates = [route for route in routes if route.active and address in route.network]
+    candidates = [route for route in _routes_for(routes, address) if route.active]
     candidates.sort(
         key=lambda route: (-route.network.prefixlen, route.admin_distance, route.metric, route.protocol)
     )
     result = Diagnosis(destination=destination, selected=candidates[0] if candidates else None, candidates=candidates)
-    inactive = [route for route in routes if not route.active and address in route.network]
+    inactive = [route for route in _routes_for(routes, address) if not route.active]
     skipped = [
         f"{len(inactive)} inactive route(s) for this destination were skipped, "
         f"including {inactive[0].prefix}"
@@ -127,6 +130,14 @@ def diagnose_destination(routes: list[Route], destination: str) -> Diagnosis:
     return result
 
 
+def _routes_for(routes: list[Route], address: IPv4Address | IPv6Address) -> list[Route]:
+    return [
+        route
+        for route in routes
+        if route.network.version == address.version and address in route.network
+    ]
+
+
 def _resolve_next_hop(
     routes: list[Route], next_hop: str, result: Diagnosis, visited: set[str]
 ) -> None:
@@ -137,7 +148,7 @@ def _resolve_next_hop(
     result.recursive_chain.append(next_hop)
 
     address = ip_address(next_hop)
-    matches = [route for route in routes if route.active and address in route.network]
+    matches = [route for route in _routes_for(routes, address) if route.active]
     matches.sort(key=lambda route: (-route.network.prefixlen, route.admin_distance, route.metric))
     if not matches:
         result.findings.append(f"ERROR next hop {next_hop} is unresolved")

@@ -1,3 +1,5 @@
+import pytest
+
 from routedoctor import diagnose_destination, parse_routes
 
 
@@ -105,3 +107,40 @@ def test_detects_recursive_loop() -> None:
 
     assert not result.ok
     assert any("recursive routing loop" in finding for finding in result.findings)
+
+
+def test_diagnoses_ipv6_longest_prefix() -> None:
+    routes = parse_routes(
+        [
+            {"prefix": "::/0", "next_hop": "2001:db8:ffff::1"},
+            {
+                "prefix": "2001:db8:1::/48",
+                "next_hop": "2001:db8:ffff::2",
+                "protocol": "ospf",
+                "admin_distance": 110,
+                "metric": 10,
+            },
+            {
+                "prefix": "2001:db8:ffff::/64",
+                "interface": "GigabitEthernet0/0",
+                "protocol": "connected",
+                "admin_distance": 0,
+            },
+        ]
+    )
+    result = diagnose_destination(routes, "2001:db8:1::9")
+    assert result.ok
+    assert result.selected.prefix == "2001:db8:1::/48"
+    assert result.recursive_chain == ["2001:db8:ffff::2"]
+
+
+def test_other_ip_version_is_a_missing_route_not_an_error() -> None:
+    routes = parse_routes([{"prefix": "0.0.0.0/0", "interface": "eth0"}])
+    result = diagnose_destination(routes, "2001:db8::1")
+    assert not result.ok
+    assert result.findings == ["ERROR no matching active route; traffic is dropped"]
+
+
+def test_rejects_next_hop_of_other_version() -> None:
+    with pytest.raises(ValueError, match="invalid route at index 0"):
+        parse_routes([{"prefix": "2001:db8::/32", "next_hop": "192.0.2.1"}])
