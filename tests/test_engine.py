@@ -144,3 +144,25 @@ def test_other_ip_version_is_a_missing_route_not_an_error() -> None:
 def test_rejects_next_hop_of_other_version() -> None:
     with pytest.raises(ValueError, match="invalid route at index 0"):
         parse_routes([{"prefix": "2001:db8::/32", "next_hop": "192.0.2.1"}])
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"prefix": "0.0.0.0/0", "next_hop": 0, "interface": "eth0"},
+        {"prefix": "0.0.0.0/0", "next_hop": "", "interface": "eth0"},
+        {"prefix": "0.0.0.0/0", "interface": ""},
+        {"prefix": "0.0.0.0/0", "interface": 5},
+        {"prefix": 5},
+        {"prefix": "0.0.0.0/0", "protocol": 7},
+        {"prefix": "0.0.0.0/0", "interface": "eth0", "admin_distance": 1e999},
+        {"prefix": "0.0.0.0/0", "interface": "eth0", "metric": 1e999},
+        {"prefix": "0.0.0.0/0", "interface": "eth0", "admin_distance": True},
+        {"prefix": "0.0.0.0/0", "interface": "eth0", "metric": 1.5},
+        {"prefix": "0.0.0.0/0", "interface": "eth0", "metric": -1},
+        {"prefix": "0.0.0.0/0", "interface": "eth0", "metric": 4294967296},
+    ],
+)
+def test_parse_routes_rejects_malformed_routes_with_value_error(bad: dict) -> None:
+    with pytest.raises(ValueError, match="invalid route at index 0"):
+        parse_routes([bad])

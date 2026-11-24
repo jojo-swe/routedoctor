@@ -49,17 +49,20 @@ class Diagnosis:
         }
 
 
+_MAX_NUMBER = 4_294_967_295
+
+
 def parse_routes(items: list[dict[str, Any]]) -> list[Route]:
     routes: list[Route] = []
     for index, item in enumerate(items):
         try:
             route = Route(
-                prefix=str(item["prefix"]),
-                protocol=str(item.get("protocol", "static")),
-                next_hop=item.get("next_hop"),
-                interface=item.get("interface"),
-                admin_distance=int(item.get("admin_distance", 1)),
-                metric=int(item.get("metric", 0)),
+                prefix=_text(item, "prefix", required=True),
+                protocol=_text(item, "protocol", default="static"),
+                next_hop=_text(item, "next_hop", optional=True),
+                interface=_text(item, "interface", optional=True),
+                admin_distance=_number(item, "admin_distance", 1),
+                metric=_number(item, "metric", 0),
                 active=bool(item.get("active", True)),
             )
             network = route.network
@@ -70,10 +73,37 @@ def parse_routes(items: list[dict[str, Any]]) -> list[Route]:
                         f"next hop {route.next_hop} is IPv{next_hop.version} "
                         f"but prefix {route.prefix} is IPv{network.version}"
                     )
-        except (KeyError, TypeError, ValueError) as exc:
+        except (KeyError, TypeError, ValueError, OverflowError, AttributeError) as exc:
             raise ValueError(f"invalid route at index {index}: {exc}") from exc
         routes.append(route)
     return routes
+
+
+def _text(
+    item: dict[str, Any],
+    key: str,
+    *,
+    required: bool = False,
+    optional: bool = False,
+    default: str = "",
+) -> Any:
+    if key not in item:
+        if required:
+            raise KeyError(key)
+        return None if optional else default
+    value = item[key]
+    if value is None and optional:
+        return None
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{key} must be a non-empty string")
+    return value
+
+
+def _number(item: dict[str, Any], key: str, default: int) -> int:
+    value = item.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= _MAX_NUMBER:
+        raise ValueError(f"{key} must be an integer from 0 to {_MAX_NUMBER}")
+    return value
 
 
 def diagnose_destination(routes: list[Route], destination: str) -> Diagnosis:

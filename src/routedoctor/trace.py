@@ -63,8 +63,8 @@ def parse_snapshot(payload: dict[str, Any]) -> list[Device]:
 
 def _parse_device(index: int, item: Any) -> Device:
     name = item.get("name") if isinstance(item, dict) else None
-    if not isinstance(name, str):
-        raise ValueError(f"device {index} needs a string name")
+    if not isinstance(name, str) or not 0 < len(name) <= 64 or not name.isprintable():
+        raise ValueError(f"device {index} needs a name of 1 to 64 printable characters")
     if "routes" in item and "table" in item:
         raise ValueError(f"device {name} has both routes and table; give one")
     if "routes" not in item and "table" not in item:
@@ -81,7 +81,9 @@ def _parse_device(index: int, item: Any) -> Device:
                 raise ValueError("table must be a string")
             table = parse_table(item["table"])
             routes = table.routes
-            addresses += [a for a in map(_canonical, table.addresses) if a not in addresses]
+            for found in map(_canonical, table.addresses):
+                if found not in addresses:
+                    addresses.append(found)
     except ValueError as exc:
         raise ValueError(f"device {name}: {exc}") from exc
     return Device(name=name, routes=routes, addresses=addresses)
@@ -142,6 +144,8 @@ def trace(devices: list[Device], start: str, destination: str, max_hops: int = 3
             error = next(f for f in diagnosis.findings if f.startswith("ERROR"))
             return _finish(result, "blackhole", f"{current.name}: {error.removeprefix('ERROR ')}")
 
+        if not diagnosis.recursive_chain:
+            return _finish(result, "delivered", current.name)
         next_hop = diagnosis.recursive_chain[-1]
         owner = owners.get(_canonical(next_hop))
         if owner is None:

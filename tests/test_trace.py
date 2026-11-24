@@ -1,9 +1,11 @@
+import importlib
 import json
 from pathlib import Path
 
 import pytest
 
-from routedoctor.engine import parse_routes
+from routedoctor.engine import Route, parse_routes
+from routedoctor.parsers import ParsedTable
 from routedoctor.render import render_trace
 from routedoctor.trace import Device, parse_snapshot, trace
 
@@ -31,7 +33,9 @@ def test_trace_detects_loop_between_devices() -> None:
 
 def test_trace_reports_blackhole() -> None:
     devices = [
-        Device("solo", parse_routes([{"prefix": "192.0.2.0/24", "interface": "eth0"}]), ["192.0.2.1"])
+        Device(
+            "solo", parse_routes([{"prefix": "192.0.2.0/24", "interface": "eth0"}]), ["192.0.2.1"]
+        )
     ]
     result = trace(devices, "solo", "203.0.113.9")
     assert result.outcome == "blackhole"
@@ -70,7 +74,11 @@ def test_trace_delivers_on_a_connected_interface() -> None:
 def test_trace_delivers_when_destination_is_a_device_address() -> None:
     # The only route is unresolved, so the diagnosis alone would be a blackhole.
     devices = [
-        Device("solo", parse_routes([{"prefix": "0.0.0.0/0", "next_hop": "192.0.2.254"}]), ["203.0.113.1"])
+        Device(
+            "solo",
+            parse_routes([{"prefix": "0.0.0.0/0", "next_hop": "192.0.2.254"}]),
+            ["203.0.113.1"],
+        )
     ]
     result = trace(devices, "solo", "203.0.113.1")
     assert (result.outcome, result.detail) == ("delivered", "solo")
@@ -157,8 +165,8 @@ def test_snapshot_merges_declared_and_parsed_addresses() -> None:
         ([], "snapshot must be a JSON object"),
         ({}, "snapshot needs a devices list"),
         ({"devices": {}}, "snapshot needs a devices list"),
-        ({"devices": [{"routes": []}]}, "device 0 needs a string name"),
-        ({"devices": [{"name": 5, "routes": []}]}, "device 0 needs a string name"),
+        ({"devices": [{"routes": []}]}, "device 0 needs a name"),
+        ({"devices": [{"name": 5, "routes": []}]}, "device 0 needs a name"),
         ({"devices": [{"name": "r1"}]}, "device r1 needs routes or table"),
         (
             {"devices": [{"name": "r1", "routes": [], "table": "x"}]},
@@ -211,3 +219,55 @@ def test_render_trace_delivered() -> None:
     text = render_trace(trace(load("campus-snapshot.json"), "edge", "198.51.100.9"))
     assert text.splitlines()[-1] == "+ delivered at dist"
     assert text.splitlines()[-2] == "[3] dist: 198.51.100.0/24 via GigabitEthernet0/1"
+
+
+def test_trace_survives_a_route_without_a_usable_chain() -> None:
+    # Built by hand, bypassing parse_routes: a falsy next hop leaves the chain empty.
+    route = Route("0.0.0.0/0", next_hop="", interface="eth0")
+    result = trace([Device("solo", [route], ["192.0.2.1"])], "solo", "203.0.113.9")
+    assert result.outcome == "delivered"
+
+
+def test_trace_reaches_hop_limit_on_a_three_device_chain() -> None:
+    lan = {"prefix": "192.0.2.0/24", "interface": "eth0"}
+    devices = [
+        Device(
+            "a",
+            parse_routes([lan, {"prefix": "0.0.0.0/0", "next_hop": "192.0.2.2"}]),
+            ["192.0.2.1"],
+        ),
+        Device(
+            "b",
+            parse_routes([lan, {"prefix": "0.0.0.0/0", "next_hop": "192.0.2.3"}]),
+            ["192.0.2.2"],
+        ),
+        Device("c", parse_routes([{"prefix": "0.0.0.0/0", "interface": "eth0"}]), ["192.0.2.3"]),
+    ]
+    result = trace(devices, "a", "203.0.113.9", max_hops=1)
+    assert (result.outcome, result.detail) == ("hop_limit", "gave up after 1 hops")
+
+
+@pytest.mark.parametrize("name", ["", "x" * 65, "r1\nr2", "r\x001", "r1\x7f"])
+def test_snapshot_rejects_unusable_device_names(name: str) -> None:
+    with pytest.raises(ValueError, match="device 0 needs a name") as info:
+        parse_snapshot({"devices": [{"name": name, "routes": []}]})
+    assert "\n" not in str(info.value)
+
+
+def test_snapshot_survives_infinite_route_numbers() -> None:
+    payload = json.loads(
+        '{"devices": [{"name": "r1", "routes": [{"prefix": "0.0.0.0/0", "metric": 1e999}]}]}'
+    )
+    with pytest.raises(ValueError, match="device r1: invalid route at index 0"):
+        parse_snapshot(payload)
+
+
+def test_snapshot_deduplicates_addresses_within_a_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    table = ParsedTable(
+        "json", parse_routes([{"prefix": "192.0.2.0/24", "interface": "e"}]), ["192.0.2.1"] * 2
+    )
+    monkeypatch.setattr(
+        importlib.import_module("routedoctor.trace"), "parse_table", lambda _t: table
+    )
+    (device,) = parse_snapshot({"devices": [{"name": "r1", "table": "ignored"}]})
+    assert device.addresses == ["192.0.2.1"]
