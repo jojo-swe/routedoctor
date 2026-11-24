@@ -19,6 +19,17 @@ All notable changes to this project are listed here. The format follows
 - `routedoctor.web.run`, a JSON-in, JSON-out entry point for the browser demo.
 - `demo/manifest.json` and `scripts/build_demo.py` to build and check the demo examples.
 - CI runs an IOS fixture and the loop trace.
+- Discard routes: Linux `blackhole`, `unreachable` and `prohibit` routes and Cisco `Null0` routes
+  (including EIGRP `is a summary` routes) win longest-prefix match like any route and make the
+  diagnosis fail with "traffic is dropped". JSON routes take an optional `discard` field, and every
+  route in the output has one.
+- On-link gateways: a route with a next hop and an interface reaches the next hop on that
+  interface when no other route covers it (Linux `onlink`, IPv6 link-local next hops in JSON).
+- An auto-detected paste of `show ip route` plus `show ipv6 route` is read as one table, format
+  `ios+ios6`.
+- In a devices snapshot, `addresses` may be the pasted output of `ip addr`.
+- `--json` works with `--trace-from` and prints the trace result.
+- Next-hop resolution stops after 64 levels with an error.
 
 ### Changed
 
@@ -26,6 +37,13 @@ All notable changes to this project are listed here. The format follows
   invalid device names in a devices snapshot are rejected. Both exit with code `2`.
 - The "less-specific route(s) were ignored" count now counts each prefix once, not each
   equal-cost path.
+- Trace delivers only at a device that owns the destination or on a connected route. A route that
+  leaves through an interface toward an unknown device ends the trace with `unknown_next_hop`.
+- A table with no routes of the destination's IP version says so instead of "no matching route".
+- FRR and Quagga output is refused instead of being misread as IOS.
+- Linux `linkdown` and `dead` paths are skipped as inactive.
+- `active` in a JSON route must be a boolean; `protocol` and `interface` must be 1 to 64 printable
+  characters. A leading byte order mark is ignored. Text lines over 2,000 characters are skipped.
 
 ## [0.1.0]
 

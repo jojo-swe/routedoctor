@@ -30,7 +30,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--format",
         choices=["auto", "json", "ios", "ios6", "linux", "linux6"],
         default="auto",
-        help="routing table format (default: auto-detect)",
+        help="routing table format (default: auto-detect; auto reads 'show ip route' plus "
+        "'show ipv6 route' pasted together as one table, format ios+ios6)",
     )
     parser.add_argument(
         "--trace-from",

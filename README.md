@@ -15,13 +15,18 @@ A browser demo is planned at https://johnjohansson.com/lab/routedoctor/. It is n
 - longest-prefix match
 - administrative-distance and metric tie-breaking
 - equal-cost paths (ECMP) sharing the best prefix, distance, and metric
-- recursive next-hop resolution
-- unresolved next hops
+- recursive next-hop resolution, and on-link gateways (a next hop reached through the route's own
+  interface)
+- unresolved next hops, and resolution chains deeper than 64 levels
 - recursive routing loops
-- missing routes, and inactive routes that were skipped
+- discard routes that win the lookup and drop the traffic: Linux `blackhole`, `unreachable` and
+  `prohibit`, and Cisco `Null0` routes, including EIGRP `is a summary` routes
+- missing routes, tables with no routes of the destination's IP version, and inactive routes that
+  were skipped (including Linux `linkdown` and `dead` paths)
 - routes with no usable next hop or exit interface
 - less-specific routes shadowed by a more-specific prefix
-- forwarding across several devices: delivery, black holes, loops, and next hops no device owns
+- forwarding across several devices: delivery, black holes, loops, next hops no device owns, and
+  routes that leave through an interface toward a device RouteDoctor cannot identify
 
 ## Quick start
 
@@ -75,8 +80,14 @@ forces one parser:
 | `linux6` | Linux `ip -6 route` |
 | `auto` | detect from the content (default) |
 
-IOS and Linux are the only text formats. Pasted text may be indented as a block; RouteDoctor removes
-the common indentation. Input is limited to 200,000 characters.
+`auto` reads a paste of `show ip route` followed by `show ipv6 route` as one table and reports its
+format as `ios+ios6`; the forced `ios` and `ios6` parsers read only their own address family.
+
+IOS and Linux are the only text formats. FRR and Quagga `show ip route` output looks like IOS but
+is refused with an error, in `auto` and in the forced `ios` and `ios6` modes. Pasted text may be
+indented as a block; RouteDoctor removes the common indentation and ignores a leading byte order
+mark. Input is limited to 200,000 characters, and text lines longer than 2,000 characters are
+skipped.
 
 ```bash
 routedoctor tests/fixtures/ios-show-ip-route.txt 198.51.100.9
@@ -125,13 +136,41 @@ Selected: 198.51.100.0/24 via 192.0.2.4 [static]
 + 1 less-specific route(s) were ignored, including 0.0.0.0/0
 ```
 
+The same table has an `unreachable` route. The kernel matches it like any other route and drops
+the packet, so RouteDoctor reports an error and exits `1`:
+
+```bash
+routedoctor tests/fixtures/linux-ip-route.txt 203.0.113.200
+```
+
+```text
+RouteDoctor diagnosis for 203.0.113.200
+====================================================
+Selected: 203.0.113.128/25 via discard (unreachable) [static]
++ Selected 203.0.113.128/25 by longest-prefix match (/25)
+! ERROR 203.0.113.128/25 is a discard route (unreachable); traffic is dropped
++ 1 less-specific route(s) were ignored, including 0.0.0.0/0
+```
+
+Cisco routes to `Null0` (`is directly connected, Null0`, `via Null0`, and EIGRP
+`is a summary, ..., Null0`) are discard routes in the same way.
+
 ## Trace across devices
 
 `--trace-from DEVICE` follows a destination from one device to the next. At each device it picks
 the route, takes the last address of the recursive next-hop chain, finds the device that owns that
-address, and continues there. It stops when the destination is delivered, when a device has no
-route, when no device owns the next hop, when it returns to a device it already visited, or after
-32 hops.
+address, and continues there.
+
+The destination is delivered at a device that owns the destination address, or at a device whose
+selected route is a `connected` (or `local`) route without a next hop. The trace stops with:
+
+- `blackhole` when the device has no route, the route cannot be resolved, or it is a discard route
+- `unknown_next_hop` when no device owns the next hop, or when the route leaves through an
+  interface without a next-hop address and is not a connected network (for example an OSPFv3 route
+  whose link-local next hop RouteDoctor does not keep): the detail is
+  `<device>: leaves via <interface>; next device unknown`
+- `loop` when it returns to a device it already visited
+- `hop_limit` after 32 hops
 
 ```bash
 routedoctor examples/campus-snapshot.json 198.51.100.1 --trace-from edge
@@ -201,8 +240,20 @@ devices.
 
 - From IOS text, the addresses come from the `L` (local) routes with a host prefix. Include them
   in the paste.
-- Linux `ip route` output has no addresses. Give them in `addresses`.
+- Linux `ip route` output has no addresses. Give them in `addresses`, either as a list or as the
+  pasted output of `ip addr` (global `inet` and `inet6` addresses are used; link-local and
+  loopback addresses are skipped).
 - For `routes` devices, `addresses` is required.
+
+A Linux device with `ip addr` output as its addresses:
+
+```json
+{
+  "name": "h1",
+  "table": "default via 192.0.2.1 dev eth0 proto dhcp metric 100\n192.0.2.0/24 dev eth0 proto kernel scope link\n",
+  "addresses": "2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500\n    inet 192.0.2.10/24 brd 192.0.2.255 scope global eth0\n"
+}
+```
 
 ## Machine-readable output
 
@@ -225,7 +276,7 @@ The same flag works with `--trace-from`.
 {
   "routes": [
     {
-      "prefix": "10.20.0.0/16",
+      "prefix": "203.0.113.0/24",
       "protocol": "static",
       "next_hop": "192.0.2.3",
       "admin_distance": 1,
@@ -244,16 +295,41 @@ The same flag works with `--trace-from`.
 
 A bare JSON array of routes (without the `routes` key) is also accepted. `prefix` is required.
 `protocol` defaults to `static`, `admin_distance` to `1`, `metric` to `0` and `active` to `true`.
-A route needs a `next_hop` or an `interface`, otherwise the diagnosis reports an error. A next hop
-must be in the same address family as its prefix. IPv4 and IPv6 routes can be mixed in one file.
+`active` must be `true` or `false`. `protocol` and `interface` are 1 to 64 printable characters on
+one line. A route needs a `next_hop`, an `interface` or `discard`, otherwise the diagnosis reports
+an error. A next hop must be in the same address family as its prefix. IPv4 and IPv6 routes can be
+mixed in one file.
+
+- `discard` is optional: `blackhole`, `unreachable`, `prohibit` or `Null0` marks a route that drops
+  traffic. An `interface` named `Null0` (any case, also `Null 0`) is a discard route too. In the
+  output every route has a `discard` field, `null` for ordinary routes.
+- A route with both `next_hop` and `interface` reaches the next hop on that interface when no other
+  route covers the next hop, or only the route itself does (a Linux `onlink` gateway): the finding
+  is `Next hop <hop> is on-link through <interface>`.
+- An IPv6 link-local next hop (`fe80::/10`) with an `interface` is on-link through that interface.
+  Without an interface it is an error, because a link-local address only means something on one
+  link.
 
 ## Limitations
 
 - VRFs are not supported. A table is one routing instance.
-- IOS and Linux are the only text formats. Other vendors and other commands are not parsed.
-- Trace needs each device's own addresses: IOS `L` routes supply them, Linux needs them in the JSON.
-- A link-local IPv6 next hop (`fe80::/10`) is treated as directly attached through its interface.
-  It is not resolved recursively, so a trace cannot follow it to another device.
+- IOS and Linux are the only text formats. FRR and Quagga output is refused; other vendors and
+  other commands are not parsed.
+- Discard routes are understood: Linux `blackhole`, `unreachable` and `prohibit`, and Cisco `Null0`
+  routes. Linux `throw` routes and policy routing (`ip rule`, other tables) are not.
+- Trace needs each device's own addresses: IOS `L` routes supply them; for Linux give them in
+  `addresses`, as a list or as `ip addr` output.
+- The IOS and Linux text parsers keep only the interface of a route whose next hop is IPv6
+  link-local, so such a route forwards "through the interface" in a diagnosis, and a trace stops
+  there with `unknown_next_hop`. Every OSPFv3, EIGRP for IPv6 and router-advertisement route looks
+  like this, so an IPv6 trace usually stops at the first such route. In JSON, a link-local next hop
+  with an interface is kept; the trace looks for a device that lists that link-local address.
+- A route that leaves through an interface without a next-hop address delivers only if its
+  protocol is `connected` (or `local`); any other such route ends the trace with
+  `unknown_next_hop`.
+- Same-prefix routes are compared by administrative distance, then metric. Linux compares only the
+  metric, so a `proto kernel` route (read as `connected`, distance 0) beats a `proto static` route
+  to the same prefix even when the static route has the lower metric.
 - Equal-cost paths are reported, but the forwarding walk and the trace follow only the first one.
 - One destination per run.
 
@@ -282,8 +358,9 @@ print(result.outcome, result.ok)              # loop False
 print(render_trace(result))
 ```
 
-- `parse_table(text, format="auto")` returns a `ParsedTable` with `format`, `routes` and
-  `addresses`. It raises `ValueError` for an unknown format or when no routes are recognised.
+- `parse_table(text, format="auto")` returns a `ParsedTable` with `format` (`json`, `ios`, `ios6`,
+  `ios+ios6`, `linux` or `linux6`), `routes` and `addresses`. It raises `ValueError` for an unknown
+  format, for FRR or Quagga output, or when no routes are recognised.
 - `parse_routes(items)` builds routes from a list of dicts, as in the JSON snapshot.
 - `diagnose_destination(routes, destination)` returns a `Diagnosis`. It raises `ValueError` for an
   invalid address.

@@ -1,0 +1,10 @@
+{
+  "id": "discard",
+  "title": "Blackhole route drops traffic",
+  "request": {
+    "action": "diagnose",
+    "format": "auto",
+    "table": "default via 192.0.2.1 dev eth0 proto dhcp src 192.0.2.10 metric 100\n192.0.2.0/24 dev eth0 proto kernel scope link src 192.0.2.10 metric 100\nblackhole 203.0.113.0/24 proto static\n",
+    "destination": "203.0.113.9"
+  }
+}

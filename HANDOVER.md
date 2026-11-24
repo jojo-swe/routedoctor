@@ -32,9 +32,10 @@ Projekt: RouteDoctor explains **why a routing table selects a path** and highlig
 ## Kända problem
 
 - VRF stöds inte.
-- `--trace-from` kräver enhetens egna adresser: IOS `L`-rutter ger dem, för Linux måste de anges i JSON.
-- Länklokala IPv6-next hops behandlas som direktanslutna via sitt gränssnitt och kan inte följas till en annan enhet.
-- Endast IOS och Linux som textformat.
+- `--trace-from` kräver enhetens egna adresser: IOS `L`-rutter ger dem, för Linux anges de i `addresses` som lista eller som `ip addr`-utdata.
+- IOS- och Linux-parsrarna behåller bara gränssnittet för en rutt med länklokal IPv6-next hop. Diagnosen säger då att trafiken skickas ut genom gränssnittet; en trace stannar där med `unknown_next_hop` (gäller alla OSPFv3-, EIGRPv6- och RA-rutter). I JSON behålls en länklokal next hop med gränssnitt och räknas som on-link; utan gränssnitt är den ett fel.
+- Endast IOS och Linux som textformat; FRR/Quagga avvisas med ett felmeddelande.
+- Samma prefix jämförs med administrativt avstånd före metrik. Linux jämför bara metrik, så en `proto kernel`-rutt vinner över en `proto static`-rutt till samma prefix.
 
 ## Senaste commits
 
@@ -55,3 +56,4 @@ Projekt: RouteDoctor explains **why a routing table selects a path** and highlig
 |-------|-------|-----------------|
 | 2026-11-04 | Claude (Cowork) | Lade till AGENTS.md, HANDOVER.md och CLAUDE.md; inventerade PR:er, brancher och commits. |
 | 2026-11-24 | Claude Code | Version 1.0.0: README, CHANGELOG, versionshöjning, demo-manifest och två nya CI-steg (IOS-fixture, loop-trace). Branch `agent/claude/v1`. |
+| 2026-11-24 | Claude Code | Slutlig rättningsvåg för 1.0: discard-rutter (blackhole/unreachable/prohibit, Null0), trace levererar bara vid ägare eller connected-rutt, on-link-gateways, FRR avvisas, kombinerad IOS-klistring, `ip addr` i snapshot, prestandagränser, validering. |

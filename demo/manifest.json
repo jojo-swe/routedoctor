@@ -373,6 +373,65 @@
       "title": "Linux ip route"
     },
     {
+      "id": "discard",
+      "request": {
+        "action": "diagnose",
+        "destination": "203.0.113.9",
+        "format": "auto",
+        "table": "default via 192.0.2.1 dev eth0 proto dhcp src 192.0.2.10 metric 100\n192.0.2.0/24 dev eth0 proto kernel scope link src 192.0.2.10 metric 100\nblackhole 203.0.113.0/24 proto static\n"
+      },
+      "response": {
+        "action": "diagnose",
+        "ok": true,
+        "passed": false,
+        "result": {
+          "candidates": [
+            {
+              "active": true,
+              "admin_distance": 1,
+              "discard": "blackhole",
+              "interface": null,
+              "metric": 0,
+              "next_hop": null,
+              "prefix": "203.0.113.0/24",
+              "protocol": "static"
+            },
+            {
+              "active": true,
+              "admin_distance": 1,
+              "discard": null,
+              "interface": "eth0",
+              "metric": 100,
+              "next_hop": "192.0.2.1",
+              "prefix": "0.0.0.0/0",
+              "protocol": "dhcp"
+            }
+          ],
+          "destination": "203.0.113.9",
+          "equal_cost": [],
+          "findings": [
+            "Selected 203.0.113.0/24 by longest-prefix match (/24)",
+            "ERROR 203.0.113.0/24 is a discard route (blackhole); traffic is dropped",
+            "1 less-specific route(s) were ignored, including 0.0.0.0/0"
+          ],
+          "ok": false,
+          "recursive_chain": [],
+          "selected": {
+            "active": true,
+            "admin_distance": 1,
+            "discard": "blackhole",
+            "interface": null,
+            "metric": 0,
+            "next_hop": null,
+            "prefix": "203.0.113.0/24",
+            "protocol": "static"
+          }
+        },
+        "text": "RouteDoctor diagnosis for 203.0.113.9\n====================================================\nSelected: 203.0.113.0/24 via discard (blackhole) [static]\n+ Selected 203.0.113.0/24 by longest-prefix match (/24)\n! ERROR 203.0.113.0/24 is a discard route (blackhole); traffic is dropped\n+ 1 less-specific route(s) were ignored, including 0.0.0.0/0"
+      },
+      "title": "Blackhole route drops traffic"
+    },
+    {
       "id": "trace-delivered",
       "request": {
         "action": "trace",
