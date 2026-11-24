@@ -23,8 +23,13 @@ All notable changes to this project are listed here. The format follows
   (including EIGRP `is a summary` routes) win longest-prefix match like any route and make the
   diagnosis fail with "traffic is dropped". JSON routes take an optional `discard` field, and every
   route in the output has one.
-- On-link gateways: a route with a next hop and an interface reaches the next hop on that
-  interface when no other route covers it (Linux `onlink`, IPv6 link-local next hops in JSON).
+- A route with both a next hop and an interface (Linux `via X dev Y`, with or without `onlink`;
+  IOS `via X, <age>, <interface>` and fully specified statics; JSON with both fields) leaves
+  through that interface without a recursive lookup: "Next hop <hop> is reached through
+  <interface>". Only interface-less next hops are resolved recursively.
+- Linux `linkdown` routes still win the lookup and report "exit interface <dev> has no carrier
+  (linkdown); traffic is dropped"; JSON routes take an optional `linkdown` boolean.
+- Linux IPv4 routes via an IPv6 gateway (RFC 5549) are refused with an error naming the line.
 - An auto-detected paste of `show ip route` plus `show ipv6 route` is read as one table, format
   `ios+ios6`.
 - In a devices snapshot, `addresses` may be the pasted output of `ip addr`.
@@ -41,7 +46,9 @@ All notable changes to this project are listed here. The format follows
   leaves through an interface toward an unknown device ends the trace with `unknown_next_hop`.
 - A table with no routes of the destination's IP version says so instead of "no matching route".
 - FRR and Quagga output is refused instead of being misread as IOS.
-- Linux `linkdown` and `dead` paths are skipped as inactive.
+- Linux `dead` multipath next hops are skipped while another next hop works; if none works, the
+  route drops traffic like a `linkdown` route.
+- Trace delivers on a `local` route only for a host prefix (`/32`, `/128`).
 - `active` in a JSON route must be a boolean; `protocol` and `interface` must be 1 to 64 printable
   characters. A leading byte order mark is ignored. Text lines over 2,000 characters are skipped.
 

@@ -15,14 +15,16 @@ A browser demo is planned at https://johnjohansson.com/lab/routedoctor/. It is n
 - longest-prefix match
 - administrative-distance and metric tie-breaking
 - equal-cost paths (ECMP) sharing the best prefix, distance, and metric
-- recursive next-hop resolution, and on-link gateways (a next hop reached through the route's own
-  interface)
+- recursive next-hop resolution for routes with a next hop and no interface; a route that names
+  both a next hop and an interface leaves through that interface
 - unresolved next hops, and resolution chains deeper than 64 levels
 - recursive routing loops
 - discard routes that win the lookup and drop the traffic: Linux `blackhole`, `unreachable` and
   `prohibit`, and Cisco `Null0` routes, including EIGRP `is a summary` routes
+- Linux `linkdown` routes: the route still wins the lookup, and the packet is dropped because the
+  exit interface has no carrier
 - missing routes, tables with no routes of the destination's IP version, and inactive routes that
-  were skipped (including Linux `linkdown` and `dead` paths)
+  were skipped (including `dead` Linux multipath next hops while another next hop works)
 - routes with no usable next hop or exit interface
 - less-specific routes shadowed by a more-specific prefix
 - forwarding across several devices: delivery, black holes, loops, next hops no device owns, and
@@ -131,8 +133,7 @@ RouteDoctor diagnosis for 198.51.100.9
 ====================================================
 Selected: 198.51.100.0/24 via 192.0.2.4 [static]
 + Selected 198.51.100.0/24 by longest-prefix match (/24)
-+ Next hop 192.0.2.4 resolves through 192.0.2.0/24
-+ Recursive resolution terminates on eth0
++ Next hop 192.0.2.4 is reached through eth0
 + 1 less-specific route(s) were ignored, including 0.0.0.0/0
 ```
 
@@ -162,9 +163,11 @@ the route, takes the last address of the recursive next-hop chain, finds the dev
 address, and continues there.
 
 The destination is delivered at a device that owns the destination address, or at a device whose
-selected route is a `connected` (or `local`) route without a next hop. The trace stops with:
+selected route is a `connected` route without a next hop, or a `local` route for a host prefix
+(`/32` or `/128`). The trace stops with:
 
-- `blackhole` when the device has no route, the route cannot be resolved, or it is a discard route
+- `blackhole` when the device has no route, the route cannot be resolved, it is a discard route, or
+  its exit interface is `linkdown`
 - `unknown_next_hop` when no device owns the next hop, or when the route leaves through an
   interface without a next-hop address and is not a connected network (for example an OSPFv3 route
   whose link-local next hop RouteDoctor does not keep): the detail is
@@ -303,12 +306,17 @@ mixed in one file.
 - `discard` is optional: `blackhole`, `unreachable`, `prohibit` or `Null0` marks a route that drops
   traffic. An `interface` named `Null0` (any case, also `Null 0`) is a discard route too. In the
   output every route has a `discard` field, `null` for ordinary routes.
-- A route with both `next_hop` and `interface` reaches the next hop on that interface when no other
-  route covers the next hop, or only the route itself does (a Linux `onlink` gateway): the finding
-  is `Next hop <hop> is on-link through <interface>`.
-- An IPv6 link-local next hop (`fe80::/10`) with an `interface` is on-link through that interface.
-  Without an interface it is an error, because a link-local address only means something on one
-  link.
+- `linkdown` is optional (`true` or `false`, default `false`): the route's exit interface has no
+  carrier. The route still wins the lookup, and the diagnosis reports
+  `ERROR exit interface <interface> has no carrier (linkdown); traffic is dropped`.
+- A route with both `next_hop` and `interface` leaves through that interface to that next hop. The
+  next hop is not looked up again; the finding is `Next hop <hop> is reached through <interface>`.
+  This is how Linux `via X dev Y` (with or without `onlink`), IOS `via X, <age>, <interface>` and
+  fully specified static routes forward. Only a route with a next hop and no interface is resolved
+  recursively, with loop detection and a limit of 64 levels. In a trace, the next device is the
+  one that owns the next hop.
+- An IPv6 link-local next hop (`fe80::/10`) without an interface is an error, because a link-local
+  address only means something on one link.
 
 ## Limitations
 
@@ -325,8 +333,13 @@ mixed in one file.
   like this, so an IPv6 trace usually stops at the first such route. In JSON, a link-local next hop
   with an interface is kept; the trace looks for a device that lists that link-local address.
 - A route that leaves through an interface without a next-hop address delivers only if its
-  protocol is `connected` (or `local`); any other such route ends the trace with
+  protocol is `connected`, or `local` with a host prefix; any other such route ends the trace with
   `unknown_next_hop`.
+- Linux IPv4 routes via an IPv6 gateway (RFC 5549, `via inet6 ...`) are refused with
+  `IPv4 route via an IPv6 gateway is not supported: <line>`.
+- A Linux `linkdown` route is treated as the kernel does by default
+  (`ignore_routes_with_linkdown=0`): it still wins the lookup. With that sysctl set to `1` the
+  kernel would skip it instead.
 - Same-prefix routes are compared by administrative distance, then metric. Linux compares only the
   metric, so a `proto kernel` route (read as `connected`, distance 0) beats a `proto static` route
   to the same prefix even when the static route has the lower metric.
