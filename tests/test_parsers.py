@@ -189,6 +189,8 @@ def test_auto_accepts_json_object_with_routes() -> None:
         '{"routes": []}',
         '{"routes": 5}',
         "null",
+        "[1,2]",
+        '["a"]',
         "[" * 100_000,
         "Please add a route for 192.0.2.0/24 via the gateway.",
         "Gateway of last resort is 192.0.2.1 to network 0.0.0.0",
@@ -311,3 +313,82 @@ def test_ios_mask_less_line_after_own_length_under_subnetted_header_is_skipped()
         "C        192.0.2.0 is directly connected, GigabitEthernet0/3\n"
     )
     assert [r.prefix for r in parse_ios(text).routes] == ["203.0.113.0/26", "198.51.100.0/24"]
+
+
+def test_linux_link_local_next_hop_keeps_only_the_interface() -> None:
+    table = parse_linux("default via fe80::1 dev eth0 proto ra metric 1024 pref medium\n")
+    assert table.format == "linux6"
+    (route,) = table.routes
+    assert (route.prefix, route.next_hop, route.interface) == ("::/0", None, "eth0")
+
+
+def test_ios_table_with_one_malformed_line_still_parses() -> None:
+    text = FIXTURES.joinpath("ios-show-ip-route.txt").read_text()
+    text += "S        198.51.100.256/24 [1/0] via 192.0.2.1\n"
+    table = parse_table(text)
+    assert table.format == "ios"
+    assert len(table.routes) == 5
+
+
+def _indent(text: str, prefix: str) -> str:
+    return "".join(prefix + line if line.strip() else line for line in text.splitlines(True))
+
+
+@pytest.mark.parametrize(
+    "name,prefix,expected",
+    [
+        ("linux-ip-route.txt", "  ", "linux"),
+        ("linux-ip-6-route.txt", "\t", "linux6"),
+        ("ios-show-ip-route.txt", "    ", "ios"),
+        ("ios-show-ip-route-subnetted.txt", "    ", "ios"),
+        ("ios-show-ipv6-route.txt", "    ", "ios6"),
+    ],
+)
+def test_indented_and_crlf_pastes_match_the_plain_table(
+    name: str, prefix: str, expected: str
+) -> None:
+    plain = FIXTURES.joinpath(name).read_text()
+    for variant in (_indent(plain, prefix), plain.replace("\n", "\r\n")):
+        table = parse_table(variant)
+        assert table.format == expected
+        assert table.routes == parse_table(plain).routes
+
+
+def test_indented_linux_multipath_keeps_nexthop_lines() -> None:
+    text = (
+        "    default proto static metric 100\n"
+        "        nexthop via 192.0.2.1 dev eth0 weight 1\n"
+        "        nexthop via 192.0.2.2 dev eth1 weight 1\n"
+    )
+    assert [r.next_hop for r in parse_table(text).routes] == ["192.0.2.1", "192.0.2.2"]
+
+
+def test_linux_trailing_whitespace_is_ignored() -> None:
+    text = "default via 192.0.2.1 dev eth0 metric 100   \t\n192.0.2.0/24 dev eth0 proto kernel \n"
+    table = parse_table(text)
+    assert [(r.prefix, r.interface) for r in table.routes] == [
+        ("0.0.0.0/0", "eth0"),
+        ("192.0.2.0/24", "eth0"),
+    ]
+
+
+def test_linux_unreachable_default_is_an_inactive_default() -> None:
+    text = (
+        "2001:db8:ffff::/64 dev eth0 proto kernel metric 256 pref medium\n"
+        "unreachable default dev lo metric 4278198272 pref medium\n"
+    )
+    table = parse_table(text)
+    blocked = next(r for r in table.routes if r.prefix == "::/0")
+    assert (blocked.active, blocked.metric) == (False, 4278198272)
+    v4 = parse_linux("unreachable default metric 5\n192.0.2.0/24 dev eth0\n")
+    assert [(r.prefix, r.active) for r in v4.routes] == [("0.0.0.0/0", False), ("192.0.2.0/24", True)]
+
+
+def test_linux_negative_metric_line_is_skipped() -> None:
+    table = parse_linux("192.0.2.0/24 dev eth0 metric -5\n198.51.100.0/24 dev eth1\n")
+    assert [r.prefix for r in table.routes] == ["198.51.100.0/24"]
+
+
+def test_forced_linux_on_ipv6_only_text_reports_linux6() -> None:
+    text = FIXTURES.joinpath("linux-ip-6-route.txt").read_text()
+    assert parse_table(text, format="linux").format == "linux6"

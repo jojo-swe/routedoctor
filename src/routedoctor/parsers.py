@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import textwrap
 from dataclasses import dataclass
 from ipaddress import ip_address, ip_network
 from typing import Any
@@ -193,10 +194,11 @@ def parse_linux(text: str) -> ParsedTable:
     header: dict[str, Any] | None = None  # route line that indented `nexthop` lines belong to
 
     def add(item: dict[str, Any]) -> None:
+        family = item.pop("family", None)
         if item["prefix"] == "default":
-            hop = item.get("next_hop")
-            if hop:
-                families.add(ip_address(hop).version)
+            if family:
+                families.add(family)
+            item["family"] = family  # resolved below
             defaults.append(item)
         else:
             families.add(ip_network(item["prefix"], strict=False).version)
@@ -221,11 +223,8 @@ def parse_linux(text: str) -> ParsedTable:
     # A default route with no next hop takes the family of the rest of the table.
     table_default = "::/0" if families == {6} else "0.0.0.0/0"
     for item in defaults:
-        hop = item.get("next_hop")
-        if hop:
-            item["prefix"] = "::/0" if ip_address(hop).version == 6 else "0.0.0.0/0"
-        else:
-            item["prefix"] = table_default
+        family = item.pop("family")
+        item["prefix"] = table_default if family is None else ("::/0" if family == 6 else "0.0.0.0/0")
     routes = parse_routes(items)
     all_v6 = bool(routes) and all(route.network.version == 6 for route in routes)
     return ParsedTable(format="linux6" if all_v6 else "linux", routes=routes, addresses=[])
@@ -242,8 +241,6 @@ def _linux_route(tokens: list[str]) -> dict[str, Any] | None:
     prefix = tokens[0]
     if prefix != "default":
         prefix = str(ip_network(prefix, strict=False))  # ValueError: not a route line
-    elif not active:
-        return None
     path = _linux_path(tokens[1:])
     protocol = path.pop("proto", None)
     if protocol == "kernel":
@@ -273,8 +270,17 @@ def _linux_path(tokens: list[str]) -> dict[str, Any]:
                 found["proto"] = value
             else:
                 found["metric"] = int(value)
+                if found["metric"] < 0:
+                    raise ValueError("negative metric")
         else:
             index += 1
+    hop = found.get("next_hop")
+    if hop:
+        address = ip_address(hop)
+        found["family"] = address.version
+        # As in IOS output, a link-local next hop only means "out of this interface".
+        if address.version == 6 and address.is_link_local and "interface" in found:
+            del found["next_hop"]
     return found
 
 
@@ -309,6 +315,8 @@ def parse_table(text: str, format: str = "auto") -> ParsedTable:
         raise ValueError(f"unknown format: {format}")
     if len(text) > MAX_TEXT_LENGTH:
         raise ValueError(f"input is larger than {MAX_TEXT_LENGTH} characters")
+    # Pastes from code blocks or quoted mail are uniformly indented; keep relative indentation.
+    text = textwrap.dedent(text.replace("\r\n", "\n"))
     if format == "auto":
         # Order matters: an IOS line is never a valid Linux line, but not the other way round.
         # A parser only wins by finding routes, so prose that merely contains an address does not.
@@ -317,8 +325,8 @@ def parse_table(text: str, format: str = "auto") -> ParsedTable:
             if table.routes:
                 return table
     else:
-        parser = {"json": _parse_json, "ios": parse_ios, "ios6": parse_ios6}.get(format, parse_linux)
-        table = parser(text)
+        parsers = {"json": _parse_json, "ios": parse_ios, "ios6": parse_ios6}
+        table = parsers.get(format, parse_linux)(text)
         if table.routes:
             return table
     raise ValueError(_NO_ROUTES)
@@ -330,7 +338,9 @@ def _parse_json(text: str) -> ParsedTable:
     except (ValueError, RecursionError):
         return ParsedTable(format="json", routes=[], addresses=[])
     items = payload.get("routes") if isinstance(payload, dict) else payload
-    routes = parse_routes(items) if isinstance(items, list) else []
+    # Only a list of objects is a route list; anything else is some other JSON.
+    is_route_list = isinstance(items, list) and all(isinstance(item, dict) for item in items)
+    routes = parse_routes(items) if is_route_list else []
     return ParsedTable(format="json", routes=routes, addresses=[])
 
 
@@ -353,8 +363,5 @@ def _ios_if_known_codes(
     for line in text.splitlines():
         match = route_re.match(line)
         if match and match["code"].rstrip("*+%") in protocols:
-            try:
-                return parser(text)
-            except ValueError:
-                break
+            return parser(text)  # a genuine error in a real IOS table should surface
     return ParsedTable(format="ios", routes=[], addresses=[])
