@@ -166,3 +166,21 @@ def test_rejects_next_hop_of_other_version() -> None:
 def test_parse_routes_rejects_malformed_routes_with_value_error(bad: dict) -> None:
     with pytest.raises(ValueError, match="invalid route at index 0"):
         parse_routes([bad])
+
+
+def test_less_specific_routes_are_counted_once_per_prefix() -> None:
+    routes = parse_routes(
+        [
+            {"prefix": "0.0.0.0/0", "next_hop": "192.0.2.1", "admin_distance": 1},
+            {"prefix": "198.51.100.0/24", "next_hop": "192.0.2.2", "admin_distance": 110, "metric": 20},
+            {"prefix": "198.51.100.0/24", "next_hop": "192.0.2.4", "admin_distance": 110, "metric": 20},
+            {"prefix": "198.51.100.8/29", "next_hop": "192.0.2.3", "admin_distance": 1},
+            {"prefix": "192.0.2.0/24", "interface": "GigabitEthernet0/0"},
+        ]
+    )
+
+    result = diagnose_destination(routes, "198.51.100.9")
+
+    assert (
+        "2 less-specific route(s) were ignored, including 198.51.100.0/24" in result.findings
+    )

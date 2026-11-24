@@ -89,7 +89,7 @@ Selected: 198.51.100.8/29 via 192.0.2.3 [static]
 + Selected 198.51.100.8/29 by longest-prefix match (/29)
 + Next hop 192.0.2.3 resolves through 192.0.2.0/24
 + Recursive resolution terminates on GigabitEthernet0/0
-+ 3 less-specific route(s) were ignored, including 198.51.100.0/24
++ 2 less-specific route(s) were ignored, including 198.51.100.0/24
 ```
 
 Destinations can be IPv6. This is `show ipv6 route` output:
@@ -105,7 +105,7 @@ Selected: 2001:db8:1:8::/61 via 2001:db8::3 [static]
 + Selected 2001:db8:1:8::/61 by longest-prefix match (/61)
 + Next hop 2001:db8::3 resolves through 2001:db8::/64
 + Recursive resolution terminates on GigabitEthernet0/0
-+ 3 less-specific route(s) were ignored, including 2001:db8:1::/48
++ 2 less-specific route(s) were ignored, including 2001:db8:1::/48
 ```
 
 Linux output works the same way. This one is forced with `--format`, which is only needed when

@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 import routedoctor
@@ -26,3 +27,10 @@ def test_manifest_is_small_and_titles_are_short() -> None:
     assert MANIFEST.stat().st_size < 100_000
     for example in json.loads(MANIFEST.read_text())["examples"]:
         assert len(example["title"]) <= 40
+
+
+def test_ids_are_slugs_and_passed_matches_the_diagnosis() -> None:
+    failing = {"unresolved", "trace-loop"}
+    for example in json.loads(MANIFEST.read_text())["examples"]:
+        assert re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", example["id"]), example["id"]
+        assert example["response"]["passed"] is (example["id"] not in failing), example["id"]

@@ -24,6 +24,8 @@ All notable changes to this project are listed here. The format follows
 
 - Route fields are validated more strictly (non-empty text, integer distance and metric), and
   invalid device names in a devices snapshot are rejected. Both exit with code `2`.
+- The "less-specific route(s) were ignored" count now counts each prefix once, not each
+  equal-cost path.
 
 ## [0.1.0]
 

@@ -153,8 +153,9 @@ def diagnose_destination(routes: list[Route], destination: str) -> Diagnosis:
 
     shadowed = [route for route in candidates[1:] if route.network.prefixlen < selected.network.prefixlen]
     if shadowed:
+        shadowed_prefixes = {route.network for route in shadowed}
         result.findings.append(
-            f"{len(shadowed)} less-specific route(s) were ignored, including {shadowed[0].prefix}"
+            f"{len(shadowed_prefixes)} less-specific route(s) were ignored, including {shadowed[0].prefix}"
         )
     result.findings.extend(skipped)
     return result
