@@ -1,0 +1,859 @@
+{
+  "entry": "routedoctor.web:run",
+  "examples": [
+    {
+      "id": "campus",
+      "request": {
+        "action": "diagnose",
+        "destination": "198.51.100.9",
+        "format": "auto",
+        "table": "Gateway of last resort is 192.0.2.1 to network 0.0.0.0\n\nS*    0.0.0.0/0 [1/0] via 192.0.2.1\n      192.0.2.0/24 is variably subnetted, 2 subnets, 2 masks\nC        192.0.2.0/24 is directly connected, GigabitEthernet0/0\nL        192.0.2.10/32 is directly connected, GigabitEthernet0/0\n      198.51.100.0/24 is variably subnetted, 2 subnets, 2 masks\nO        198.51.100.0/24 [110/20] via 192.0.2.2, 00:10:21, GigabitEthernet0/0\n                         [110/20] via 192.0.2.4, 00:10:21, GigabitEthernet0/0\nS        198.51.100.8/29 [1/0] via 192.0.2.3\n"
+      },
+      "response": {
+        "action": "diagnose",
+        "ok": true,
+        "passed": true,
+        "result": {
+          "candidates": [
+            {
+              "active": true,
+              "admin_distance": 1,
+              "discard": null,
+              "interface": null,
+              "linkdown": false,
+              "metric": 0,
+              "next_hop": "192.0.2.3",
+              "prefix": "198.51.100.8/29",
+              "protocol": "static"
+            },
+            {
+              "active": true,
+              "admin_distance": 110,
+              "discard": null,
+              "interface": "GigabitEthernet0/0",
+              "linkdown": false,
+              "metric": 20,
+              "next_hop": "192.0.2.2",
+              "prefix": "198.51.100.0/24",
+              "protocol": "ospf"
+            },
+            {
+              "active": true,
+              "admin_distance": 110,
+              "discard": null,
+              "interface": "GigabitEthernet0/0",
+              "linkdown": false,
+              "metric": 20,
+              "next_hop": "192.0.2.4",
+              "prefix": "198.51.100.0/24",
+              "protocol": "ospf"
+            },
+            {
+              "active": true,
+              "admin_distance": 1,
+              "discard": null,
+              "interface": null,
+              "linkdown": false,
+              "metric": 0,
+              "next_hop": "192.0.2.1",
+              "prefix": "0.0.0.0/0",
+              "protocol": "static"
+            }
+          ],
+          "destination": "198.51.100.9",
+          "equal_cost": [],
+          "findings": [
+            "Selected 198.51.100.8/29 by longest-prefix match (/29)",
+            "Next hop 192.0.2.3 resolves through 192.0.2.0/24",
+            "Recursive resolution terminates on GigabitEthernet0/0",
+            "2 less-specific route(s) were ignored, including 198.51.100.0/24"
+          ],
+          "ok": true,
+          "recursive_chain": [
+            "192.0.2.3"
+          ],
+          "selected": {
+            "active": true,
+            "admin_distance": 1,
+            "discard": null,
+            "interface": null,
+            "linkdown": false,
+            "metric": 0,
+            "next_hop": "192.0.2.3",
+            "prefix": "198.51.100.8/29",
+            "protocol": "static"
+          }
+        },
+        "text": "RouteDoctor diagnosis for 198.51.100.9\n====================================================\nSelected: 198.51.100.8/29 via 192.0.2.3 [static]\n+ Selected 198.51.100.8/29 by longest-prefix match (/29)\n+ Next hop 192.0.2.3 resolves through 192.0.2.0/24\n+ Recursive resolution terminates on GigabitEthernet0/0\n+ 2 less-specific route(s) were ignored, including 198.51.100.0/24"
+      },
+      "title": "Longest prefix wins"
+    },
+    {
+      "id": "ecmp",
+      "request": {
+        "action": "diagnose",
+        "destination": "198.51.100.77",
+        "format": "auto",
+        "table": "Gateway of last resort is 192.0.2.1 to network 0.0.0.0\n\nS*    0.0.0.0/0 [1/0] via 192.0.2.1\n      192.0.2.0/24 is variably subnetted, 2 subnets, 2 masks\nC        192.0.2.0/24 is directly connected, GigabitEthernet0/0\nL        192.0.2.10/32 is directly connected, GigabitEthernet0/0\n      198.51.100.0/24 is variably subnetted, 2 subnets, 2 masks\nO        198.51.100.0/24 [110/20] via 192.0.2.2, 00:10:21, GigabitEthernet0/0\n                         [110/20] via 192.0.2.4, 00:10:21, GigabitEthernet0/0\nS        198.51.100.8/29 [1/0] via 192.0.2.3\n"
+      },
+      "response": {
+        "action": "diagnose",
+        "ok": true,
+        "passed": true,
+        "result": {
+          "candidates": [
+            {
+              "active": true,
+              "admin_distance": 110,
+              "discard": null,
+              "interface": "GigabitEthernet0/0",
+              "linkdown": false,
+              "metric": 20,
+              "next_hop": "192.0.2.2",
+              "prefix": "198.51.100.0/24",
+              "protocol": "ospf"
+            },
+            {
+              "active": true,
+              "admin_distance": 110,
+              "discard": null,
+              "interface": "GigabitEthernet0/0",
+              "linkdown": false,
+              "metric": 20,
+              "next_hop": "192.0.2.4",
+              "prefix": "198.51.100.0/24",
+              "protocol": "ospf"
+            },
+            {
+              "active": true,
+              "admin_distance": 1,
+              "discard": null,
+              "interface": null,
+              "linkdown": false,
+              "metric": 0,
+              "next_hop": "192.0.2.1",
+              "prefix": "0.0.0.0/0",
+              "protocol": "static"
+            }
+          ],
+          "destination": "198.51.100.77",
+          "equal_cost": [
+            {
+              "active": true,
+              "admin_distance": 110,
+              "discard": null,
+              "interface": "GigabitEthernet0/0",
+              "linkdown": false,
+              "metric": 20,
+              "next_hop": "192.0.2.2",
+              "prefix": "198.51.100.0/24",
+              "protocol": "ospf"
+            },
+            {
+              "active": true,
+              "admin_distance": 110,
+              "discard": null,
+              "interface": "GigabitEthernet0/0",
+              "linkdown": false,
+              "metric": 20,
+              "next_hop": "192.0.2.4",
+              "prefix": "198.51.100.0/24",
+              "protocol": "ospf"
+            }
+          ],
+          "findings": [
+            "Selected 198.51.100.0/24 by longest-prefix match (/24)",
+            "2 equal-cost paths via 192.0.2.2, 192.0.2.4; showing the first",
+            "Next hop 192.0.2.2 is reached through GigabitEthernet0/0",
+            "1 less-specific route(s) were ignored, including 0.0.0.0/0"
+          ],
+          "ok": true,
+          "recursive_chain": [
+            "192.0.2.2"
+          ],
+          "selected": {
+            "active": true,
+            "admin_distance": 110,
+            "discard": null,
+            "interface": "GigabitEthernet0/0",
+            "linkdown": false,
+            "metric": 20,
+            "next_hop": "192.0.2.2",
+            "prefix": "198.51.100.0/24",
+            "protocol": "ospf"
+          }
+        },
+        "text": "RouteDoctor diagnosis for 198.51.100.77\n====================================================\nSelected: 198.51.100.0/24 via 192.0.2.2 [ospf]\n+ Selected 198.51.100.0/24 by longest-prefix match (/24)\n+ 2 equal-cost paths via 192.0.2.2, 192.0.2.4; showing the first\n+ Next hop 192.0.2.2 is reached through GigabitEthernet0/0\n+ 1 less-specific route(s) were ignored, including 0.0.0.0/0"
+      },
+      "title": "Two equal-cost paths"
+    },
+    {
+      "id": "unresolved",
+      "request": {
+        "action": "diagnose",
+        "destination": "203.0.113.9",
+        "format": "auto",
+        "table": "{\n  \"routes\": [\n    {\n      \"prefix\": \"0.0.0.0/0\",\n      \"protocol\": \"static\",\n      \"next_hop\": \"192.0.2.1\",\n      \"admin_distance\": 1,\n      \"metric\": 0,\n      \"active\": false\n    },\n    {\n      \"prefix\": \"203.0.113.0/24\",\n      \"protocol\": \"static\",\n      \"next_hop\": \"198.51.100.1\",\n      \"admin_distance\": 1,\n      \"metric\": 0\n    }\n  ]\n}\n"
+      },
+      "response": {
+        "action": "diagnose",
+        "ok": true,
+        "passed": false,
+        "result": {
+          "candidates": [
+            {
+              "active": true,
+              "admin_distance": 1,
+              "discard": null,
+              "interface": null,
+              "linkdown": false,
+              "metric": 0,
+              "next_hop": "198.51.100.1",
+              "prefix": "203.0.113.0/24",
+              "protocol": "static"
+            }
+          ],
+          "destination": "203.0.113.9",
+          "equal_cost": [],
+          "findings": [
+            "Selected 203.0.113.0/24 by longest-prefix match (/24)",
+            "ERROR next hop 198.51.100.1 is unresolved",
+            "1 inactive route(s) for this destination were skipped, including 0.0.0.0/0"
+          ],
+          "ok": false,
+          "recursive_chain": [
+            "198.51.100.1"
+          ],
+          "selected": {
+            "active": true,
+            "admin_distance": 1,
+            "discard": null,
+            "interface": null,
+            "linkdown": false,
+            "metric": 0,
+            "next_hop": "198.51.100.1",
+            "prefix": "203.0.113.0/24",
+            "protocol": "static"
+          }
+        },
+        "text": "RouteDoctor diagnosis for 203.0.113.9\n====================================================\nSelected: 203.0.113.0/24 via 198.51.100.1 [static]\n+ Selected 203.0.113.0/24 by longest-prefix match (/24)\n! ERROR next hop 198.51.100.1 is unresolved\n+ 1 inactive route(s) for this destination were skipped, including 0.0.0.0/0"
+      },
+      "title": "Unresolved next hop"
+    },
+    {
+      "id": "ipv6",
+      "request": {
+        "action": "diagnose",
+        "destination": "2001:db8:1:9::1",
+        "format": "auto",
+        "table": "IPv6 Routing Table - default - 6 entries\nS   ::/0 [1/0]\n     via 2001:DB8::1\nC   2001:DB8::/64 [0/0]\n     via GigabitEthernet0/0, directly connected\nL   2001:DB8::A/128 [0/0]\n     via GigabitEthernet0/0, receive\nO   2001:DB8:1::/48 [110/10]\n     via FE80::2, GigabitEthernet0/0\n     via FE80::4, GigabitEthernet0/0\nS   2001:DB8:1:8::/61 [1/0]\n     via 2001:DB8::3\nL   FF00::/8 [0/0]\n     via Null0, receive\n"
+      },
+      "response": {
+        "action": "diagnose",
+        "ok": true,
+        "passed": true,
+        "result": {
+          "candidates": [
+            {
+              "active": true,
+              "admin_distance": 1,
+              "discard": null,
+              "interface": null,
+              "linkdown": false,
+              "metric": 0,
+              "next_hop": "2001:db8::3",
+              "prefix": "2001:db8:1:8::/61",
+              "protocol": "static"
+            },
+            {
+              "active": true,
+              "admin_distance": 110,
+              "discard": null,
+              "interface": "GigabitEthernet0/0",
+              "linkdown": false,
+              "metric": 10,
+              "next_hop": null,
+              "prefix": "2001:db8:1::/48",
+              "protocol": "ospf"
+            },
+            {
+              "active": true,
+              "admin_distance": 110,
+              "discard": null,
+              "interface": "GigabitEthernet0/0",
+              "linkdown": false,
+              "metric": 10,
+              "next_hop": null,
+              "prefix": "2001:db8:1::/48",
+              "protocol": "ospf"
+            },
+            {
+              "active": true,
+              "admin_distance": 1,
+              "discard": null,
+              "interface": null,
+              "linkdown": false,
+              "metric": 0,
+              "next_hop": "2001:db8::1",
+              "prefix": "::/0",
+              "protocol": "static"
+            }
+          ],
+          "destination": "2001:db8:1:9::1",
+          "equal_cost": [],
+          "findings": [
+            "Selected 2001:db8:1:8::/61 by longest-prefix match (/61)",
+            "Next hop 2001:db8::3 resolves through 2001:db8::/64",
+            "Recursive resolution terminates on GigabitEthernet0/0",
+            "2 less-specific route(s) were ignored, including 2001:db8:1::/48"
+          ],
+          "ok": true,
+          "recursive_chain": [
+            "2001:db8::3"
+          ],
+          "selected": {
+            "active": true,
+            "admin_distance": 1,
+            "discard": null,
+            "interface": null,
+            "linkdown": false,
+            "metric": 0,
+            "next_hop": "2001:db8::3",
+            "prefix": "2001:db8:1:8::/61",
+            "protocol": "static"
+          }
+        },
+        "text": "RouteDoctor diagnosis for 2001:db8:1:9::1\n====================================================\nSelected: 2001:db8:1:8::/61 via 2001:db8::3 [static]\n+ Selected 2001:db8:1:8::/61 by longest-prefix match (/61)\n+ Next hop 2001:db8::3 resolves through 2001:db8::/64\n+ Recursive resolution terminates on GigabitEthernet0/0\n+ 2 less-specific route(s) were ignored, including 2001:db8:1::/48"
+      },
+      "title": "IPv6 table"
+    },
+    {
+      "id": "linux",
+      "request": {
+        "action": "diagnose",
+        "destination": "198.51.100.20",
+        "format": "auto",
+        "table": "default via 192.0.2.1 dev eth0 proto dhcp src 192.0.2.10 metric 100\n192.0.2.0/24 dev eth0 proto kernel scope link src 192.0.2.10 metric 100\n198.51.100.0/24 via 192.0.2.4 dev eth0 proto static metric 20\nunreachable 203.0.113.128/25 metric 200\n"
+      },
+      "response": {
+        "action": "diagnose",
+        "ok": true,
+        "passed": true,
+        "result": {
+          "candidates": [
+            {
+              "active": true,
+              "admin_distance": 1,
+              "discard": null,
+              "interface": "eth0",
+              "linkdown": false,
+              "metric": 20,
+              "next_hop": "192.0.2.4",
+              "prefix": "198.51.100.0/24",
+              "protocol": "static"
+            },
+            {
+              "active": true,
+              "admin_distance": 1,
+              "discard": null,
+              "interface": "eth0",
+              "linkdown": false,
+              "metric": 100,
+              "next_hop": "192.0.2.1",
+              "prefix": "0.0.0.0/0",
+              "protocol": "dhcp"
+            }
+          ],
+          "destination": "198.51.100.20",
+          "equal_cost": [],
+          "findings": [
+            "Selected 198.51.100.0/24 by longest-prefix match (/24)",
+            "Next hop 192.0.2.4 is reached through eth0",
+            "1 less-specific route(s) were ignored, including 0.0.0.0/0"
+          ],
+          "ok": true,
+          "recursive_chain": [
+            "192.0.2.4"
+          ],
+          "selected": {
+            "active": true,
+            "admin_distance": 1,
+            "discard": null,
+            "interface": "eth0",
+            "linkdown": false,
+            "metric": 20,
+            "next_hop": "192.0.2.4",
+            "prefix": "198.51.100.0/24",
+            "protocol": "static"
+          }
+        },
+        "text": "RouteDoctor diagnosis for 198.51.100.20\n====================================================\nSelected: 198.51.100.0/24 via 192.0.2.4 [static]\n+ Selected 198.51.100.0/24 by longest-prefix match (/24)\n+ Next hop 192.0.2.4 is reached through eth0\n+ 1 less-specific route(s) were ignored, including 0.0.0.0/0"
+      },
+      "title": "Linux ip route"
+    },
+    {
+      "id": "discard",
+      "request": {
+        "action": "diagnose",
+        "destination": "203.0.113.9",
+        "format": "auto",
+        "table": "default via 192.0.2.1 dev eth0 proto dhcp src 192.0.2.10 metric 100\n192.0.2.0/24 dev eth0 proto kernel scope link src 192.0.2.10 metric 100\nblackhole 203.0.113.0/24 proto static\n"
+      },
+      "response": {
+        "action": "diagnose",
+        "ok": true,
+        "passed": false,
+        "result": {
+          "candidates": [
+            {
+              "active": true,
+              "admin_distance": 1,
+              "discard": "blackhole",
+              "interface": null,
+              "linkdown": false,
+              "metric": 0,
+              "next_hop": null,
+              "prefix": "203.0.113.0/24",
+              "protocol": "static"
+            },
+            {
+              "active": true,
+              "admin_distance": 1,
+              "discard": null,
+              "interface": "eth0",
+              "linkdown": false,
+              "metric": 100,
+              "next_hop": "192.0.2.1",
+              "prefix": "0.0.0.0/0",
+              "protocol": "dhcp"
+            }
+          ],
+          "destination": "203.0.113.9",
+          "equal_cost": [],
+          "findings": [
+            "Selected 203.0.113.0/24 by longest-prefix match (/24)",
+            "ERROR 203.0.113.0/24 is a discard route (blackhole); traffic is dropped",
+            "1 less-specific route(s) were ignored, including 0.0.0.0/0"
+          ],
+          "ok": false,
+          "recursive_chain": [],
+          "selected": {
+            "active": true,
+            "admin_distance": 1,
+            "discard": "blackhole",
+            "interface": null,
+            "linkdown": false,
+            "metric": 0,
+            "next_hop": null,
+            "prefix": "203.0.113.0/24",
+            "protocol": "static"
+          }
+        },
+        "text": "RouteDoctor diagnosis for 203.0.113.9\n====================================================\nSelected: 203.0.113.0/24 via discard (blackhole) [static]\n+ Selected 203.0.113.0/24 by longest-prefix match (/24)\n! ERROR 203.0.113.0/24 is a discard route (blackhole); traffic is dropped\n+ 1 less-specific route(s) were ignored, including 0.0.0.0/0"
+      },
+      "title": "Blackhole route drops traffic"
+    },
+    {
+      "id": "trace-delivered",
+      "request": {
+        "action": "trace",
+        "destination": "198.51.100.1",
+        "from": "edge",
+        "snapshot": {
+          "devices": [
+            {
+              "addresses": [
+                "192.0.2.1"
+              ],
+              "name": "edge",
+              "routes": [
+                {
+                  "admin_distance": 1,
+                  "next_hop": "192.0.2.2",
+                  "prefix": "0.0.0.0/0",
+                  "protocol": "static"
+                },
+                {
+                  "admin_distance": 0,
+                  "interface": "GigabitEthernet0/0",
+                  "prefix": "192.0.2.0/30",
+                  "protocol": "connected"
+                }
+              ]
+            },
+            {
+              "addresses": [
+                "192.0.2.2",
+                "192.0.2.5"
+              ],
+              "name": "core",
+              "routes": [
+                {
+                  "admin_distance": 1,
+                  "next_hop": "192.0.2.1",
+                  "prefix": "0.0.0.0/0",
+                  "protocol": "static"
+                },
+                {
+                  "admin_distance": 0,
+                  "interface": "GigabitEthernet0/0",
+                  "prefix": "192.0.2.0/30",
+                  "protocol": "connected"
+                },
+                {
+                  "admin_distance": 0,
+                  "interface": "GigabitEthernet0/1",
+                  "prefix": "192.0.2.4/30",
+                  "protocol": "connected"
+                },
+                {
+                  "admin_distance": 110,
+                  "metric": 20,
+                  "next_hop": "192.0.2.6",
+                  "prefix": "198.51.100.0/24",
+                  "protocol": "ospf"
+                }
+              ]
+            },
+            {
+              "addresses": [
+                "192.0.2.6",
+                "198.51.100.1"
+              ],
+              "name": "dist",
+              "routes": [
+                {
+                  "admin_distance": 1,
+                  "next_hop": "192.0.2.5",
+                  "prefix": "0.0.0.0/0",
+                  "protocol": "static"
+                },
+                {
+                  "admin_distance": 0,
+                  "interface": "GigabitEthernet0/0",
+                  "prefix": "192.0.2.4/30",
+                  "protocol": "connected"
+                },
+                {
+                  "admin_distance": 0,
+                  "interface": "GigabitEthernet0/1",
+                  "prefix": "198.51.100.0/24",
+                  "protocol": "connected"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "response": {
+        "action": "trace",
+        "ok": true,
+        "passed": true,
+        "result": {
+          "destination": "198.51.100.1",
+          "detail": "dist",
+          "hops": [
+            {
+              "device": "edge",
+              "diagnosis": {
+                "candidates": [
+                  {
+                    "active": true,
+                    "admin_distance": 1,
+                    "discard": null,
+                    "interface": null,
+                    "linkdown": false,
+                    "metric": 0,
+                    "next_hop": "192.0.2.2",
+                    "prefix": "0.0.0.0/0",
+                    "protocol": "static"
+                  }
+                ],
+                "destination": "198.51.100.1",
+                "equal_cost": [],
+                "findings": [
+                  "Selected 0.0.0.0/0 by longest-prefix match (/0)",
+                  "Next hop 192.0.2.2 resolves through 192.0.2.0/30",
+                  "Recursive resolution terminates on GigabitEthernet0/0"
+                ],
+                "ok": true,
+                "recursive_chain": [
+                  "192.0.2.2"
+                ],
+                "selected": {
+                  "active": true,
+                  "admin_distance": 1,
+                  "discard": null,
+                  "interface": null,
+                  "linkdown": false,
+                  "metric": 0,
+                  "next_hop": "192.0.2.2",
+                  "prefix": "0.0.0.0/0",
+                  "protocol": "static"
+                }
+              }
+            },
+            {
+              "device": "core",
+              "diagnosis": {
+                "candidates": [
+                  {
+                    "active": true,
+                    "admin_distance": 110,
+                    "discard": null,
+                    "interface": null,
+                    "linkdown": false,
+                    "metric": 20,
+                    "next_hop": "192.0.2.6",
+                    "prefix": "198.51.100.0/24",
+                    "protocol": "ospf"
+                  },
+                  {
+                    "active": true,
+                    "admin_distance": 1,
+                    "discard": null,
+                    "interface": null,
+                    "linkdown": false,
+                    "metric": 0,
+                    "next_hop": "192.0.2.1",
+                    "prefix": "0.0.0.0/0",
+                    "protocol": "static"
+                  }
+                ],
+                "destination": "198.51.100.1",
+                "equal_cost": [],
+                "findings": [
+                  "Selected 198.51.100.0/24 by longest-prefix match (/24)",
+                  "Next hop 192.0.2.6 resolves through 192.0.2.4/30",
+                  "Recursive resolution terminates on GigabitEthernet0/1",
+                  "1 less-specific route(s) were ignored, including 0.0.0.0/0"
+                ],
+                "ok": true,
+                "recursive_chain": [
+                  "192.0.2.6"
+                ],
+                "selected": {
+                  "active": true,
+                  "admin_distance": 110,
+                  "discard": null,
+                  "interface": null,
+                  "linkdown": false,
+                  "metric": 20,
+                  "next_hop": "192.0.2.6",
+                  "prefix": "198.51.100.0/24",
+                  "protocol": "ospf"
+                }
+              }
+            },
+            {
+              "device": "dist",
+              "diagnosis": {
+                "candidates": [
+                  {
+                    "active": true,
+                    "admin_distance": 0,
+                    "discard": null,
+                    "interface": "GigabitEthernet0/1",
+                    "linkdown": false,
+                    "metric": 0,
+                    "next_hop": null,
+                    "prefix": "198.51.100.0/24",
+                    "protocol": "connected"
+                  },
+                  {
+                    "active": true,
+                    "admin_distance": 1,
+                    "discard": null,
+                    "interface": null,
+                    "linkdown": false,
+                    "metric": 0,
+                    "next_hop": "192.0.2.5",
+                    "prefix": "0.0.0.0/0",
+                    "protocol": "static"
+                  }
+                ],
+                "destination": "198.51.100.1",
+                "equal_cost": [],
+                "findings": [
+                  "Selected 198.51.100.0/24 by longest-prefix match (/24)",
+                  "Forward directly through GigabitEthernet0/1",
+                  "1 less-specific route(s) were ignored, including 0.0.0.0/0"
+                ],
+                "ok": true,
+                "recursive_chain": [],
+                "selected": {
+                  "active": true,
+                  "admin_distance": 0,
+                  "discard": null,
+                  "interface": "GigabitEthernet0/1",
+                  "linkdown": false,
+                  "metric": 0,
+                  "next_hop": null,
+                  "prefix": "198.51.100.0/24",
+                  "protocol": "connected"
+                }
+              }
+            }
+          ],
+          "ok": true,
+          "outcome": "delivered",
+          "start": "edge"
+        },
+        "text": "RouteDoctor trace from edge to 198.51.100.1\n[1] edge: 0.0.0.0/0 via 192.0.2.2\n[2] core: 198.51.100.0/24 via 192.0.2.6\n[3] dist: 198.51.100.0/24 via GigabitEthernet0/1\n+ delivered at dist"
+      },
+      "title": "Trace across three devices"
+    },
+    {
+      "id": "trace-loop",
+      "request": {
+        "action": "trace",
+        "destination": "203.0.113.5",
+        "from": "r1",
+        "snapshot": {
+          "devices": [
+            {
+              "addresses": [
+                "192.0.2.1"
+              ],
+              "name": "r1",
+              "routes": [
+                {
+                  "admin_distance": 0,
+                  "interface": "GigabitEthernet0/0",
+                  "prefix": "192.0.2.0/30",
+                  "protocol": "connected"
+                },
+                {
+                  "admin_distance": 1,
+                  "next_hop": "192.0.2.2",
+                  "prefix": "203.0.113.0/24",
+                  "protocol": "static"
+                }
+              ]
+            },
+            {
+              "addresses": [
+                "192.0.2.2"
+              ],
+              "name": "r2",
+              "routes": [
+                {
+                  "admin_distance": 0,
+                  "interface": "GigabitEthernet0/0",
+                  "prefix": "192.0.2.0/30",
+                  "protocol": "connected"
+                },
+                {
+                  "admin_distance": 1,
+                  "next_hop": "192.0.2.1",
+                  "prefix": "203.0.113.0/24",
+                  "protocol": "static"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "response": {
+        "action": "trace",
+        "ok": true,
+        "passed": false,
+        "result": {
+          "destination": "203.0.113.5",
+          "detail": "r1 -> r2 -> r1",
+          "hops": [
+            {
+              "device": "r1",
+              "diagnosis": {
+                "candidates": [
+                  {
+                    "active": true,
+                    "admin_distance": 1,
+                    "discard": null,
+                    "interface": null,
+                    "linkdown": false,
+                    "metric": 0,
+                    "next_hop": "192.0.2.2",
+                    "prefix": "203.0.113.0/24",
+                    "protocol": "static"
+                  }
+                ],
+                "destination": "203.0.113.5",
+                "equal_cost": [],
+                "findings": [
+                  "Selected 203.0.113.0/24 by longest-prefix match (/24)",
+                  "Next hop 192.0.2.2 resolves through 192.0.2.0/30",
+                  "Recursive resolution terminates on GigabitEthernet0/0"
+                ],
+                "ok": true,
+                "recursive_chain": [
+                  "192.0.2.2"
+                ],
+                "selected": {
+                  "active": true,
+                  "admin_distance": 1,
+                  "discard": null,
+                  "interface": null,
+                  "linkdown": false,
+                  "metric": 0,
+                  "next_hop": "192.0.2.2",
+                  "prefix": "203.0.113.0/24",
+                  "protocol": "static"
+                }
+              }
+            },
+            {
+              "device": "r2",
+              "diagnosis": {
+                "candidates": [
+                  {
+                    "active": true,
+                    "admin_distance": 1,
+                    "discard": null,
+                    "interface": null,
+                    "linkdown": false,
+                    "metric": 0,
+                    "next_hop": "192.0.2.1",
+                    "prefix": "203.0.113.0/24",
+                    "protocol": "static"
+                  }
+                ],
+                "destination": "203.0.113.5",
+                "equal_cost": [],
+                "findings": [
+                  "Selected 203.0.113.0/24 by longest-prefix match (/24)",
+                  "Next hop 192.0.2.1 resolves through 192.0.2.0/30",
+                  "Recursive resolution terminates on GigabitEthernet0/0"
+                ],
+                "ok": true,
+                "recursive_chain": [
+                  "192.0.2.1"
+                ],
+                "selected": {
+                  "active": true,
+                  "admin_distance": 1,
+                  "discard": null,
+                  "interface": null,
+                  "linkdown": false,
+                  "metric": 0,
+                  "next_hop": "192.0.2.1",
+                  "prefix": "203.0.113.0/24",
+                  "protocol": "static"
+                }
+              }
+            }
+          ],
+          "ok": false,
+          "outcome": "loop",
+          "start": "r1"
+        },
+        "text": "RouteDoctor trace from r1 to 203.0.113.5\n[1] r1: 203.0.113.0/24 via 192.0.2.2\n[2] r2: 203.0.113.0/24 via 192.0.2.1\n! loop: r1 -> r2 -> r1"
+      },
+      "title": "Trace finds a loop"
+    }
+  ],
+  "id": "routedoctor",
+  "package": "routedoctor",
+  "schema": 1,
+  "version": "1.0.0"
+}

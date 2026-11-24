@@ -23,8 +23,14 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: ruff check .
       - run: pytest
+      - run: python scripts/build_demo.py --check
       - run: routedoctor examples/campus-routing.json 198.51.100.9
       - run: |
           status=0
           routedoctor examples/unresolved-next-hop.json 203.0.113.9 || status=$?
+          test "$status" -eq 1
+      - run: routedoctor tests/fixtures/ios-show-ip-route.txt 198.51.100.9
+      - run: |
+          status=0
+          routedoctor examples/loop-snapshot.json 203.0.113.9 --trace-from r1 || status=$?
           test "$status" -eq 1
