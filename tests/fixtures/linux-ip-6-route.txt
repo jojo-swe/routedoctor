@@ -1,0 +1,5 @@
+2001:db8:ffff::/64 dev eth0 proto kernel metric 256 pref medium
+2001:db8:100::/48 via 2001:db8:ffff::2 dev eth0 proto static metric 20 pref medium
+fe80::/64 dev eth0 proto kernel metric 256 pref medium
+unreachable 2001:db8:dead::/48 dev lo metric 1024 pref medium
+default via 2001:db8:ffff::1 dev eth0 proto ra metric 1024 expires 1790sec pref medium

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from ipaddress import ip_address, ip_network
+from typing import Any
 
 from .engine import Route, parse_routes
 
@@ -157,3 +159,184 @@ def _ios_path(text: str) -> tuple[str | None, str | None] | None:
     if connected:
         return None, connected["interface"]
     return None
+
+
+# --- Linux `ip route` / `ip addr` -------------------------------------------------------
+
+_LINUX_INACTIVE_TYPES = {"unreachable", "blackhole", "prohibit"}
+
+
+def parse_linux(text: str) -> ParsedTable:
+    """Parse `ip route` or `ip -6 route`; the format is "linux6" when every route is IPv6."""
+    items: list[dict[str, Any]] = []
+    # Default routes carry no address family; remember them until the table's family is known.
+    families: set[int] = set()
+    defaults: list[dict[str, Any]] = []
+    header: dict[str, Any] | None = None  # route line that indented `nexthop` lines belong to
+
+    def add(item: dict[str, Any]) -> None:
+        if item["prefix"] == "default":
+            hop = item.get("next_hop")
+            if hop:
+                families.add(ip_address(hop).version)
+            defaults.append(item)
+        else:
+            families.add(ip_network(item["prefix"], strict=False).version)
+        items.append(item)
+
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        tokens = line.split()
+        try:
+            if line[0].isspace():
+                if header is not None and tokens[0] == "nexthop":
+                    add({**header, **_linux_path(tokens[1:])})
+                continue
+            header = _linux_route(tokens)
+            if header is None:
+                continue
+            if header.get("next_hop") or header.get("interface") or not header["active"]:
+                add(header)
+        except ValueError:
+            header = None  # unreadable address, prefix or number: not a route line
+    # A default route with no next hop takes the family of the rest of the table.
+    table_default = "::/0" if families == {6} else "0.0.0.0/0"
+    for item in defaults:
+        hop = item.get("next_hop")
+        if hop:
+            item["prefix"] = "::/0" if ip_address(hop).version == 6 else "0.0.0.0/0"
+        else:
+            item["prefix"] = table_default
+    routes = parse_routes(items)
+    all_v6 = bool(routes) and all(route.network.version == 6 for route in routes)
+    return ParsedTable(format="linux6" if all_v6 else "linux", routes=routes, addresses=[])
+
+
+def _linux_route(tokens: list[str]) -> dict[str, Any] | None:
+    """Read one column-0 `ip route` line; None when it does not start like a route."""
+    active = True
+    if tokens[0] in _LINUX_INACTIVE_TYPES:
+        active = False
+        tokens = tokens[1:]
+        if not tokens:
+            return None
+    prefix = tokens[0]
+    if prefix != "default":
+        prefix = str(ip_network(prefix, strict=False))  # ValueError: not a route line
+    elif not active:
+        return None
+    path = _linux_path(tokens[1:])
+    protocol = path.pop("proto", None)
+    if protocol == "kernel":
+        item = {"protocol": "connected", "admin_distance": 0}
+    else:
+        item = {"protocol": protocol or "static", "admin_distance": 1}
+    return {"prefix": prefix, "active": active, **item, **path}
+
+
+def _linux_path(tokens: list[str]) -> dict[str, Any]:
+    """Read `via`, `dev`, `proto` and `metric` from the key/value tokens of an `ip route` line."""
+    found: dict[str, Any] = {}
+    index = 0
+    while index < len(tokens):
+        key = tokens[index]
+        if key in ("via", "dev", "proto", "metric", "priority") and index + 1 < len(tokens):
+            value = tokens[index + 1]
+            if key == "via" and value in ("inet", "inet6") and index + 2 < len(tokens):
+                value = tokens[index + 2]
+                index += 1
+            index += 2
+            if key == "via":
+                found["next_hop"] = str(ip_address(value))  # ValueError: not a route line
+            elif key == "dev":
+                found["interface"] = value
+            elif key == "proto":
+                found["proto"] = value
+            else:
+                found["metric"] = int(value)
+        else:
+            index += 1
+    return found
+
+
+def parse_ip_addr(text: str) -> list[str]:
+    """Return the global addresses from `ip addr`, without prefix lengths or link-local ones."""
+    addresses: list[str] = []
+    for line in text.splitlines():
+        tokens = line.split()
+        if len(tokens) < 2 or tokens[0] not in ("inet", "inet6"):
+            continue
+        try:
+            address = ip_address(tokens[1].partition("/")[0])
+        except ValueError:
+            continue
+        if address.is_link_local or address.is_loopback:
+            continue
+        if str(address) not in addresses:
+            addresses.append(str(address))
+    return addresses
+
+
+# --- Format detection ---------------------------------------------------------------------
+
+MAX_TEXT_LENGTH = 200_000
+_NO_ROUTES = "no routes recognised; expected JSON, 'show ip route' or 'ip route' output"
+_FORMATS = ("auto", "json", "ios", "ios6", "linux", "linux6")
+
+
+def parse_table(text: str, format: str = "auto") -> ParsedTable:
+    """Parse a pasted routing table. `format` is "auto" or forces one parser."""
+    if format not in _FORMATS:
+        raise ValueError(f"unknown format: {format}")
+    if len(text) > MAX_TEXT_LENGTH:
+        raise ValueError(f"input is larger than {MAX_TEXT_LENGTH} characters")
+    if format == "auto":
+        # Order matters: an IOS line is never a valid Linux line, but not the other way round.
+        # A parser only wins by finding routes, so prose that merely contains an address does not.
+        for candidate in (_parse_json, _parse_ios_strict, _parse_ios6_strict, parse_linux):
+            table = candidate(text)
+            if table.routes:
+                return table
+    else:
+        parser = {"json": _parse_json, "ios": parse_ios, "ios6": parse_ios6}.get(format, parse_linux)
+        table = parser(text)
+        if table.routes:
+            return table
+    raise ValueError(_NO_ROUTES)
+
+
+def _parse_json(text: str) -> ParsedTable:
+    try:
+        payload = json.loads(text)
+    except (ValueError, RecursionError):
+        return ParsedTable(format="json", routes=[], addresses=[])
+    items = payload.get("routes") if isinstance(payload, dict) else payload
+    routes = parse_routes(items) if isinstance(items, list) else []
+    return ParsedTable(format="json", routes=routes, addresses=[])
+
+
+def _parse_ios_strict(text: str) -> ParsedTable:
+    return _ios_if_known_codes(text, _IOS_ROUTE_RE, _IOS_PROTOCOLS, parse_ios)
+
+
+def _parse_ios6_strict(text: str) -> ParsedTable:
+    return _ios_if_known_codes(text, _IOS6_ROUTE_RE, _IOS6_PROTOCOLS, parse_ios6)
+
+
+def _ios_if_known_codes(
+    text: str, route_re: re.Pattern[str], protocols: dict[str, str], parser: Any
+) -> ParsedTable:
+    """Run an IOS parser only if a line starts with a real route code and a prefix.
+
+    The IOS line patterns alone would accept any word followed by an address ("Hello 192.0.2.1"),
+    so auto-detection also requires the word to be a code the parser knows.
+    """
+    for line in text.splitlines():
+        match = route_re.match(line)
+        if match and match["code"].rstrip("*+%") in protocols:
+            try:
+                return parser(text)
+            except ValueError:
+                break
+    return ParsedTable(format="ios", routes=[], addresses=[])

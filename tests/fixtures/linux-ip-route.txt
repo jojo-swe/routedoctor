@@ -1,0 +1,4 @@
+default via 192.0.2.1 dev eth0 proto dhcp src 192.0.2.10 metric 100
+192.0.2.0/24 dev eth0 proto kernel scope link src 192.0.2.10 metric 100
+198.51.100.0/24 via 192.0.2.4 dev eth0 proto static metric 20
+unreachable 203.0.113.128/25 metric 200
