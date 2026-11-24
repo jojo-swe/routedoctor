@@ -47,12 +47,14 @@ _IOS6_PROTOCOLS = {
 # Route lines start in column 0: a code (plus optional IPv4 sub-code), then the prefix.
 _IOS_ROUTE_RE = re.compile(
     r"^(?P<code>[A-Za-z][A-Za-z0-9*+%]*)(?:\s+[A-Za-z][A-Za-z0-9]*)?"
-    r"\s+(?P<prefix>\d+\.\d+\.\d+\.\d+/\d+)(?P<rest>.*)$"
+    r"\s+(?P<prefix>\d+\.\d+\.\d+\.\d+(?:/\d+)?)(?P<rest>.*)$"
 )
 _IOS6_ROUTE_RE = re.compile(
     r"^(?P<code>[A-Za-z][A-Za-z0-9*+%]*)\s+(?P<prefix>[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*/\d+)"
     r"(?P<rest>.*)$"
 )
+# `203.0.113.0/26 is subnetted, 2 subnets`: children then omit their own /len.
+_SUBNETTED_RE = re.compile(r"^\s+\d+\.\d+\.\d+\.\d+/(?P<length>\d+) is (?P<variably>variably )?subnetted")
 _CODE_RE = re.compile(r"[A-Za-z]+[0-9]?")
 _DISTANCE_RE = re.compile(r"\[(\d+)/(\d+)\]")
 _VIA_RE = re.compile(r"\bvia\s+(?P<target>\S+?)(?:,\s*(?P<tail>.*))?$")
@@ -91,12 +93,27 @@ def _parse_ios_text(
             item["admin_distance"], item["metric"] = int(distance[1]), int(distance[2])
         items.append(item)
 
+    inherited_length: str | None = None  # prefix length from an "is subnetted" header
+
     for line in text.splitlines():
+        header = _SUBNETTED_RE.match(line)
+        if header:
+            inherited_length = None if header["variably"] else header["length"]
+            current = None
+            continue
         match = route_re.match(line)
         if match:
+            prefix = match["prefix"]
+            if "/" in prefix:
+                inherited_length = None
+            elif inherited_length is not None:
+                prefix = f"{prefix}/{inherited_length}"
+            else:
+                current = None
+                continue
             code = _CODE_RE.match(match["code"].rstrip("*"))
             protocol = protocols.get(code[0] if code else "", "other")
-            network = ip_network(match["prefix"], strict=False)
+            network = ip_network(prefix, strict=False)
             rest = match["rest"]
             if protocol == "local":
                 if network.prefixlen == network.max_prefixlen:

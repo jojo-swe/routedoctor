@@ -52,3 +52,29 @@ def test_ios6_prefixes_are_canonical_and_locals_become_addresses() -> None:
     assert diagnose_destination(table.routes, "2001:db8:1:8::5").selected.prefix == (
         "2001:db8:1:8::/61"
     )
+
+
+def test_parses_mask_less_children_of_a_subnetted_header() -> None:
+    table = parse_ios(FIXTURES.joinpath("ios-show-ip-route-subnetted.txt").read_text())
+    by_prefix = {r.prefix: r for r in table.routes}
+    assert sorted(by_prefix) == [
+        "192.0.2.0/24",
+        "198.51.100.0/24",
+        "203.0.113.0/26",
+        "203.0.113.64/26",
+    ]
+    connected = by_prefix["203.0.113.0/26"]
+    assert (connected.protocol, connected.next_hop, connected.interface) == (
+        "connected",
+        None,
+        "GigabitEthernet0/1",
+    )
+    ospf = by_prefix["203.0.113.64/26"]
+    assert (ospf.protocol, ospf.next_hop, ospf.interface, ospf.metric) == (
+        "ospf",
+        "192.0.2.2",
+        "GigabitEthernet0/0",
+        20,
+    )
+    assert by_prefix["198.51.100.0/24"].next_hop == "192.0.2.3"
+    assert table.addresses == ["192.0.2.10"]
