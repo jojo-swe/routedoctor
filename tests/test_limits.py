@@ -49,23 +49,23 @@ def test_json_input_is_not_cut_by_the_line_limit() -> None:
 
 def _chain(levels: int) -> list[dict]:
     """A default route whose next hop needs `levels` recursive lookups to reach an interface."""
-    base = int(ip_address("192.0.0.0"))
-    routes = [{"prefix": "0.0.0.0/0", "next_hop": str(ip_address(base))}]
+    base = int(ip_address("2001:db8:1::"))
+    routes = [{"prefix": "::/0", "next_hop": str(ip_address(base))}]
     for k in range(levels - 1):
         hop, following = ip_address(base + k), ip_address(base + k + 1)
-        routes.append({"prefix": f"{hop}/32", "next_hop": str(following)})
-    routes.append({"prefix": f"{ip_address(base + levels - 1)}/32", "interface": "eth0"})
+        routes.append({"prefix": f"{hop}/128", "next_hop": str(following)})
+    routes.append({"prefix": f"{ip_address(base + levels - 1)}/128", "interface": "eth0"})
     return routes
 
 
 def test_resolution_of_64_levels_succeeds() -> None:
-    result = diagnose_destination(parse_routes(_chain(64)), "203.0.113.1")
+    result = diagnose_destination(parse_routes(_chain(64)), "2001:db8:ffff::1")
     assert result.ok, result.findings[-3:]
     assert len(result.recursive_chain) == 64
 
 
 def test_resolution_deeper_than_64_levels_is_an_error() -> None:
-    result = diagnose_destination(parse_routes(_chain(65)), "203.0.113.1")
+    result = diagnose_destination(parse_routes(_chain(65)), "2001:db8:ffff::1")
     assert not result.ok
     assert result.findings[-1] == "ERROR next-hop resolution exceeds 64 levels"
     assert len(result.recursive_chain) == 64
@@ -75,7 +75,7 @@ def test_a_5000_route_chain_finishes_in_under_a_second() -> None:
     # Too large for the 200,000-character text limit, so this goes through the Python API.
     items = _chain(5000)
     start = time.perf_counter()
-    result = diagnose_destination(parse_routes(items), "203.0.113.1")
+    result = diagnose_destination(parse_routes(items), "2001:db8:ffff::1")
     assert time.perf_counter() - start < 1
     assert result.findings[-1] == "ERROR next-hop resolution exceeds 64 levels"
 
@@ -83,7 +83,7 @@ def test_a_5000_route_chain_finishes_in_under_a_second() -> None:
 def test_a_long_chain_through_the_web_entry_point_is_bounded() -> None:
     table = json.dumps(_chain(3000), separators=(",", ":"))
     assert len(table) < 200_000
-    request = json.dumps({"action": "diagnose", "table": table, "destination": "203.0.113.1"})
+    request = json.dumps({"action": "diagnose", "table": table, "destination": "2001:db8:ffff::1"})
     elapsed, raw = _elapsed(run, request)
     assert elapsed < 1
     response = json.loads(raw)
