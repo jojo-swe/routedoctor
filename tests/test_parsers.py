@@ -27,7 +27,10 @@ def test_ios_fixture_reproduces_the_readme_diagnosis() -> None:
 def test_ios_distances_and_connected_distance_zero() -> None:
     table = parse_ios(FIXTURES.joinpath("ios-show-ip-route.txt").read_text())
     ospf = [r for r in table.routes if r.protocol == "ospf"]
-    assert [(r.next_hop, r.admin_distance) for r in ospf] == [("192.0.2.2", 110), ("192.0.2.4", 110)]
+    assert [(r.next_hop, r.admin_distance) for r in ospf] == [
+        ("192.0.2.2", 110),
+        ("192.0.2.4", 110),
+    ]
     connected = next(r for r in table.routes if r.protocol == "connected")
     assert connected.admin_distance == 0
 
@@ -243,3 +246,68 @@ def test_forced_parser_that_finds_nothing_is_a_value_error() -> None:
 def test_unknown_format_name_is_a_value_error() -> None:
     with pytest.raises(ValueError, match="^unknown format: cisco$"):
         parse_table("default via 192.0.2.1 dev eth0", format="cisco")
+
+
+def test_ios_keeps_routes_with_trailing_whitespace() -> None:
+    text = (
+        "S*    0.0.0.0/0 [1/0] via 192.0.2.1   \n"
+        "O        198.51.100.0/24 [110/20] via 192.0.2.2   \n"
+        "                         [110/20] via 192.0.2.4   \n"
+    )
+    table = parse_ios(text)
+    assert [(r.prefix, r.next_hop) for r in table.routes] == [
+        ("0.0.0.0/0", "192.0.2.1"),
+        ("198.51.100.0/24", "192.0.2.2"),
+        ("198.51.100.0/24", "192.0.2.4"),
+    ]
+
+
+def test_ios_skips_malformed_prefixes_and_next_hops() -> None:
+    text = (
+        "S        192.0.2.0/99 [1/0] via 192.0.2.1\n"
+        "S        999.0.2.0/24 [1/0] via 192.0.2.1\n"
+        "S        198.51.100.0/24 [1/0] via 999.0.2.1\n"
+        "S        198.51.100.8/29 [1/0] via 192.0.2.3\n"
+    )
+    assert [(r.prefix, r.next_hop) for r in parse_ios(text).routes] == [
+        ("198.51.100.8/29", "192.0.2.3")
+    ]
+    bad6 = (
+        "S   2001:DB8:1::/200 [1/0]\n     via 2001:DB8::1\n"
+        "S   2001:DB8:2::/48 [1/0]\n     via 2001:DB8::3\n"
+    )
+    assert [r.prefix for r in parse_ios6(bad6).routes] == ["2001:db8:2::/48"]
+
+
+def test_ios_reads_sub_codes_and_other_protocols() -> None:
+    text = (
+        "O IA     198.51.100.0/24 [110/30] via 192.0.2.2, 00:01:00, GigabitEthernet0/0\n"
+        "O E2     203.0.113.0/24 [110/20] via 192.0.2.2, 00:01:00, GigabitEthernet0/0\n"
+        "B        192.0.2.64/26 [20/0] via 192.0.2.5, 1d02h\n"
+        "D        192.0.2.128/26 [90/3072] via 192.0.2.6, 00:00:09, GigabitEthernet0/1\n"
+    )
+    got = [(r.protocol, r.admin_distance, r.metric) for r in parse_ios(text).routes]
+    assert got == [("ospf", 110, 30), ("ospf", 110, 20), ("bgp", 20, 0), ("eigrp", 90, 3072)]
+
+
+def test_ios_attaches_interface_from_a_wrapped_line() -> None:
+    text = (
+        "O        198.51.100.0/24 [110/20] via 192.0.2.2, 00:10:21,\n"
+        "         GigabitEthernet0/0\n"
+        "S        198.51.100.8/29 [1/0] via 192.0.2.3\n"
+    )
+    routes = parse_ios(text).routes
+    assert [(r.next_hop, r.interface) for r in routes] == [
+        ("192.0.2.2", "GigabitEthernet0/0"),
+        ("192.0.2.3", None),
+    ]
+
+
+def test_ios_mask_less_line_after_own_length_under_subnetted_header_is_skipped() -> None:
+    text = (
+        "      203.0.113.0/26 is subnetted, 2 subnets\n"
+        "C        203.0.113.0 is directly connected, GigabitEthernet0/1\n"
+        "C        198.51.100.0/24 is directly connected, GigabitEthernet0/2\n"
+        "C        192.0.2.0 is directly connected, GigabitEthernet0/3\n"
+    )
+    assert [r.prefix for r in parse_ios(text).routes] == ["203.0.113.0/26", "198.51.100.0/24"]

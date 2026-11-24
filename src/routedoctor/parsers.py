@@ -56,12 +56,15 @@ _IOS6_ROUTE_RE = re.compile(
     r"(?P<rest>.*)$"
 )
 # `203.0.113.0/26 is subnetted, 2 subnets`: children then omit their own /len.
-_SUBNETTED_RE = re.compile(r"^\s+\d+\.\d+\.\d+\.\d+/(?P<length>\d+) is (?P<variably>variably )?subnetted")
+_SUBNETTED_RE = re.compile(
+    r"^\s+\d+\.\d+\.\d+\.\d+/(?P<length>\d+) is (?P<variably>variably )?subnetted"
+)
 _CODE_RE = re.compile(r"[A-Za-z]+[0-9]?")
 _DISTANCE_RE = re.compile(r"\[(\d+)/(\d+)\]")
 _VIA_RE = re.compile(r"\bvia\s+(?P<target>\S+?)(?:,\s*(?P<tail>.*))?$")
 _CONNECTED_RE = re.compile(r"directly connected,\s*(?P<interface>\S+)")
 _AGE_RE = re.compile(r"\d+:\d+:\d+|\d+[wdhms]\d*[wdhms]*")
+_MALFORMED_ADDRESS_RE = re.compile(r"\d+\.\d+\.\d+\.\d+|\S*:\S*")  # an address that failed
 _NOT_INTERFACES = {"directly connected", "receive"}
 
 
@@ -82,22 +85,29 @@ def _parse_ios_text(
     addresses: list[str] = []
     current: dict[str, object] | None = None  # route header that "via" lines attach to
 
-    def add_path(text_after_prefix: str) -> None:
+    def add_path(text_after_prefix: str) -> bool:
+        """Append a route for the current header; True when its line may wrap."""
         if current is None or current["protocol"] == "local":
-            return
+            return False
         path = _ios_path(text_after_prefix)
         if path is None:
-            return
+            return False
         next_hop, interface = path
         distance = _DISTANCE_RE.search(text_after_prefix)
         item = {**current, "next_hop": next_hop, "interface": interface}
         if distance:
             item["admin_distance"], item["metric"] = int(distance[1]), int(distance[2])
         items.append(item)
+        # `via 192.0.2.2, 00:10:21,` wraps: the interface is alone on the next line.
+        return interface is None and text_after_prefix.endswith(",")
 
     inherited_length: str | None = None  # prefix length from an "is subnetted" header
 
+    wrapped = False  # the previous path line ended in "," with no interface yet
+
     for line in text.splitlines():
+        line = line.rstrip()
+        was_wrapped, wrapped = wrapped, False
         header = _SUBNETTED_RE.match(line)
         if header:
             inherited_length = None if header["variably"] else header["length"]
@@ -115,7 +125,11 @@ def _parse_ios_text(
                 continue
             code = _CODE_RE.match(match["code"].rstrip("*"))
             protocol = protocols.get(code[0] if code else "", "other")
-            network = ip_network(prefix, strict=False)
+            try:
+                network = ip_network(prefix, strict=False)
+            except ValueError:
+                current = None  # not a valid prefix: skip the line
+                continue
             rest = match["rest"]
             if protocol == "local":
                 if network.prefixlen == network.max_prefixlen:
@@ -128,11 +142,13 @@ def _parse_ios_text(
             distance = _DISTANCE_RE.search(rest)
             if distance:
                 current["admin_distance"], current["metric"] = int(distance[1]), int(distance[2])
-            add_path(rest)
+            wrapped = add_path(rest)
             continue
         stripped = line.strip()
         if stripped.startswith(("[", "via ")):
-            add_path(stripped)
+            wrapped = add_path(stripped)
+        elif was_wrapped and stripped and " " not in stripped:
+            items[-1]["interface"] = stripped
         else:
             current = None
     return ParsedTable(format=table_format, routes=parse_routes(items), addresses=addresses)
@@ -148,6 +164,8 @@ def _ios_path(text: str) -> tuple[str | None, str | None] | None:
         try:
             hop = ip_address(target)
         except ValueError:
+            if _MALFORMED_ADDRESS_RE.fullmatch(target):
+                return None  # an address that does not parse: skip the line
             return None, target  # `via GigabitEthernet0/0, directly connected`
         interface = names[-1] if names else None
         # A link-local next hop is only meaningful on its interface and cannot be
