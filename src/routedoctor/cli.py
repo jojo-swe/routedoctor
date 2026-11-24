@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from .engine import diagnose_destination, parse_routes
+from .render import render_diagnosis
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -36,17 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         print(json.dumps(diagnosis.to_dict(), indent=2, sort_keys=True))
     else:
-        print(f"RouteDoctor diagnosis for {diagnosis.destination}")
-        print("=" * 52)
-        if diagnosis.selected:
-            route = diagnosis.selected
-            target = route.next_hop or route.interface or "unresolved"
-            print(f"Selected: {route.prefix} via {target} [{route.protocol}]")
-        else:
-            print("Selected: none")
-        for finding in diagnosis.findings:
-            marker = "!" if finding.startswith("ERROR") else "+"
-            print(f"{marker} {finding}")
+        print(render_diagnosis(diagnosis))
 
     return 0 if diagnosis.ok else 1
 
